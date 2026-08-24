@@ -335,12 +335,12 @@ export default function SafeSpaceApp() {
   return (
     <div className="min-h-screen bg-[#FFF8F9] text-gray-800 antialiased selection:bg-rose-100 pb-20 md:pb-12">
       
-      {/* 1. SINGLE MINIMAL HEADER */}
-      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-rose-100/60">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
+      {/* 1. RESPONSIVE TOP HEADER */}
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-rose-100/70 shadow-[0_2px_10px_rgba(244,63,94,0.03)]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
           
           {/* Logo & Brand */}
-          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => setActiveTab("community")}>
+          <div className="flex items-center gap-2.5 cursor-pointer shrink-0" onClick={() => setActiveTab("community")}>
             <Image
               src="/tfl-logo-transparent.png"
               alt="TFL Logo"
@@ -357,8 +357,35 @@ export default function SafeSpaceApp() {
             </div>
           </div>
 
-          {/* Clean Action Buttons */}
-          <div className="flex items-center gap-2">
+          {/* Desktop Navigation Tabs */}
+          <nav className="hidden md:flex items-center gap-1 bg-rose-50/70 p-1 rounded-full border border-rose-100/80 text-xs font-semibold">
+            {[
+              { id: "community", label: "Stories", icon: MessageCircle },
+              { id: "store", label: "Gifts & Merch", icon: ShoppingBag },
+              { id: "psychologist", label: "Counselor", icon: UserCheck },
+              { id: "wellness", label: "Self-Care", icon: Smile },
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as Tab)}
+                  className={`py-1.5 px-3.5 rounded-full flex items-center gap-1.5 transition-all ${
+                    isActive
+                      ? "bg-rose-500 text-white shadow-sm font-bold"
+                      : "text-gray-600 hover:text-rose-600 hover:bg-white/80"
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Action CTAs */}
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => setShowBreathingModal(true)}
               className="p-2 sm:px-3 sm:py-1.5 rounded-full bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-semibold flex items-center gap-1.5 transition-all"
@@ -378,8 +405,8 @@ export default function SafeSpaceApp() {
           </div>
         </div>
 
-        {/* Minimal Navigation Tabs */}
-        <div className="max-w-2xl mx-auto px-4 flex justify-around border-t border-rose-50 text-xs font-medium">
+        {/* Mobile Navigation Tabs */}
+        <div className="md:hidden max-w-2xl mx-auto px-4 flex justify-around border-t border-rose-50 text-xs font-medium">
           {[
             { id: "community", label: "Stories", icon: MessageCircle },
             { id: "store", label: "Gifts & Merch", icon: ShoppingBag },
@@ -406,187 +433,307 @@ export default function SafeSpaceApp() {
         </div>
       </header>
 
-      {/* 2. CENTERED SINGLE-COLUMN CONTENT CONTAINER */}
-      <main className="max-w-2xl mx-auto px-4 pt-4 space-y-4">
+      {/* 2. RESPONSIVE BALANCED MAIN CONTAINER */}
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-5">
 
         {/* TAB 1: COMMUNITY FEED */}
         {activeTab === "community" && (
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             
-            {/* Friendly Topic Pills */}
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none text-xs font-medium">
-              {roomsList.map((room) => (
-                <button
-                  key={room.id}
-                  onClick={() => setSelectedRoom(room.id)}
-                  className={`px-3.5 py-1.5 rounded-full whitespace-nowrap transition-all ${
-                    selectedRoom === room.id
-                      ? "bg-rose-500 text-white font-bold shadow-sm"
-                      : "bg-white text-gray-600 border border-rose-100 hover:bg-rose-50/50"
-                  }`}
-                >
-                  {room.icon} {room.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Composer Card */}
-            <div
-              onClick={() => setShowNewPostModal(true)}
-              className="bg-white p-4 rounded-2xl border border-rose-100/80 shadow-sm cursor-pointer hover:border-rose-300 transition-all flex items-center gap-3"
-            >
-              <div className="w-9 h-9 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center font-bold text-base shrink-0">
-                🌸
-              </div>
-              <div className="flex-1 text-xs sm:text-sm text-gray-400">
-                How is your heart feeling today? Tap to share freely...
-              </div>
-              <span className="bg-rose-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm">
-                Post
-              </span>
-            </div>
-
-            {/* Posts Stream */}
-            <div className="space-y-3.5">
-              {filteredPosts.map((post) => (
-                <article
-                  key={post.id}
-                  className="bg-white p-5 rounded-2xl border border-rose-100/70 shadow-sm space-y-3 transition-all hover:border-rose-200"
-                >
-                  {/* Post Header */}
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="w-8 h-8 rounded-full bg-rose-50 text-rose-700 flex items-center justify-center font-bold text-xs">
-                        {post.authorHandle.substring(0, 2).toUpperCase()}
-                      </span>
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-gray-900">{post.authorHandle}</span>
-                          <span className="text-[10px] text-gray-400">&bull; {post.timeAgo}</span>
+            {/* Left Sidebar Column (Channels, Anonymity & Daily Quote) */}
+            <aside className="hidden lg:block lg:col-span-3 space-y-4 sticky top-20">
+              {/* Topics Selection Box */}
+              <div className="bg-white p-4 rounded-2xl border border-rose-100/80 shadow-sm space-y-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 px-2">SafeSpace Rooms</h3>
+                <div className="space-y-1">
+                  {roomsList.map((room) => {
+                    const count = room.id === "all" ? posts.length : posts.filter((p) => p.room === room.id).length;
+                    const isSelected = selectedRoom === room.id;
+                    return (
+                      <button
+                        key={room.id}
+                        onClick={() => setSelectedRoom(room.id)}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                          isSelected
+                            ? "bg-rose-500 text-white font-bold shadow-sm"
+                            : "text-gray-600 hover:bg-rose-50/60"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span>{room.icon}</span>
+                          <span>{room.label}</span>
                         </div>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? "bg-rose-600 text-white" : "bg-rose-50 text-rose-500"}`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 100% Anonymity Promise */}
+              <div className="bg-white p-4 rounded-2xl border border-rose-100/80 shadow-sm space-y-2">
+                <div className="flex items-center gap-2 text-emerald-600 font-bold text-xs">
+                  <span>🛡️</span>
+                  <span>100% Anonymous Haven</span>
+                </div>
+                <p className="text-[11px] text-gray-500 leading-relaxed">
+                  Zero logs or identity tracking. Speak freely and be heard with warmth and total safety.
+                </p>
+              </div>
+
+              {/* Gentle Daily Affirmation */}
+              <div className="bg-gradient-to-br from-rose-50 to-pink-50/50 p-4 rounded-2xl border border-rose-100/60 text-center space-y-1.5">
+                <span className="text-rose-500 text-sm">❝</span>
+                <p className="text-xs italic text-gray-700 leading-relaxed font-serif">
+                  You don&apos;t have to carry tomorrow&apos;s burdens today. Take it one breath at a time.
+                </p>
+              </div>
+            </aside>
+
+            {/* Center Main Feed Column */}
+            <div className="lg:col-span-6 space-y-4">
+              
+              {/* Mobile Friendly Topic Pills */}
+              <div className="lg:hidden flex gap-2 overflow-x-auto pb-1 scrollbar-none text-xs font-medium">
+                {roomsList.map((room) => (
+                  <button
+                    key={room.id}
+                    onClick={() => setSelectedRoom(room.id)}
+                    className={`px-3.5 py-1.5 rounded-full whitespace-nowrap transition-all ${
+                      selectedRoom === room.id
+                        ? "bg-rose-500 text-white font-bold shadow-sm"
+                        : "bg-white text-gray-600 border border-rose-100 hover:bg-rose-50/50"
+                    }`}
+                  >
+                    {room.icon} {room.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Composer Card */}
+              <div
+                onClick={() => setShowNewPostModal(true)}
+                className="bg-white p-4 rounded-2xl border border-rose-100/80 shadow-sm cursor-pointer hover:border-rose-300 transition-all flex items-center gap-3"
+              >
+                <div className="w-9 h-9 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center font-bold text-base shrink-0">
+                  🌸
+                </div>
+                <div className="flex-1 text-xs sm:text-sm text-gray-400">
+                  How is your heart feeling today? Tap to share freely...
+                </div>
+                <span className="bg-rose-500 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-sm">
+                  Post
+                </span>
+              </div>
+
+              {/* Posts Stream */}
+              <div className="space-y-3.5">
+                {filteredPosts.map((post) => (
+                  <article
+                    key={post.id}
+                    className="bg-white p-5 rounded-2xl border border-rose-100/70 shadow-sm space-y-3 transition-all hover:border-rose-200"
+                  >
+                    {/* Post Header */}
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="w-8 h-8 rounded-full bg-rose-50 text-rose-700 flex items-center justify-center font-bold text-xs">
+                          {post.authorHandle.substring(0, 2).toUpperCase()}
+                        </span>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-gray-900">{post.authorHandle}</span>
+                            <span className="text-[10px] text-gray-400">&bull; {post.timeAgo}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <span className="text-[11px] font-medium text-rose-500 bg-rose-50 px-2.5 py-0.5 rounded-full">
+                        {post.roomLabel}
+                      </span>
+                    </div>
+
+                    {/* Body Text */}
+                    <p className="text-gray-700 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap">
+                      {post.content}
+                    </p>
+
+                    {/* Voice Note */}
+                    {post.hasVoiceNote && (
+                      <div className="bg-rose-50/50 border border-rose-100 p-2.5 rounded-xl flex items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => toggleVoice(post.id)}
+                            className="w-7 h-7 rounded-full bg-rose-500 text-white flex items-center justify-center font-bold text-xs shadow-sm"
+                          >
+                            {isPlayingVoice === post.id ? "⏸" : "▶"}
+                          </button>
+                          <div>
+                            <span className="font-bold text-gray-800 text-xs block">Voice Story</span>
+                            <span className="text-[10px] text-gray-400">{post.voiceDuration}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 h-3">
+                          {[40, 80, 30, 90, 50, 70, 40, 100].map((h, i) => (
+                            <div
+                              key={i}
+                              style={{ height: `${h}%` }}
+                              className={`w-1 rounded-full ${
+                                isPlayingVoice === post.id ? "bg-rose-500 animate-pulse" : "bg-rose-300"
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Crisis Triage Banner */}
+                    {post.isFlagged && (
+                      <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-center justify-between gap-2 text-xs text-rose-900">
+                        <div className="flex items-center gap-1.5">
+                          <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                          <span>Counselor alert: We are here to support you.</span>
+                        </div>
+                        <button
+                          onClick={() => setActiveTab("psychologist")}
+                          className="bg-rose-600 text-white px-3 py-1 rounded-lg font-bold text-xs shrink-0"
+                        >
+                          Talk to Counselor
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Reaction & Reply Bar */}
+                    <div className="flex items-center justify-between pt-2 border-t border-rose-50 text-xs text-gray-500">
+                      <button
+                        onClick={() => handleLike(post.id)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${
+                          post.hasLiked
+                            ? "bg-rose-50 text-rose-600 font-bold"
+                            : "hover:bg-rose-50 text-gray-500"
+                        }`}
+                      >
+                        <Heart className={`w-4 h-4 ${post.hasLiked ? "fill-rose-500 text-rose-500" : ""}`} />
+                        <span>{post.empathyCount} I hear you</span>
+                      </button>
+
+                      <div className="flex items-center gap-1 text-gray-400">
+                        <MessageCircle className="w-4 h-4" />
+                        <span>{post.replies.length} replies</span>
                       </div>
                     </div>
 
-                    <span className="text-[11px] font-medium text-rose-500 bg-rose-50 px-2.5 py-0.5 rounded-full">
-                      {post.roomLabel}
-                    </span>
-                  </div>
-
-                  {/* Body Text */}
-                  <p className="text-gray-700 text-xs sm:text-sm leading-relaxed whitespace-pre-wrap">
-                    {post.content}
-                  </p>
-
-                  {/* Voice Note */}
-                  {post.hasVoiceNote && (
-                    <div className="bg-rose-50/50 border border-rose-100 p-2.5 rounded-xl flex items-center justify-between gap-2 text-xs">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => toggleVoice(post.id)}
-                          className="w-7 h-7 rounded-full bg-rose-500 text-white flex items-center justify-center font-bold text-xs shadow-sm"
-                        >
-                          {isPlayingVoice === post.id ? "⏸" : "▶"}
-                        </button>
-                        <div>
-                          <span className="font-bold text-gray-800 text-xs block">Voice Story</span>
-                          <span className="text-[10px] text-gray-400">{post.voiceDuration}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1 h-3">
-                        {[40, 80, 30, 90, 50, 70, 40, 100].map((h, i) => (
+                    {/* Replies List */}
+                    {post.replies.length > 0 && (
+                      <div className="space-y-2 pt-1">
+                        {post.replies.map((rep) => (
                           <div
-                            key={i}
-                            style={{ height: `${h}%` }}
-                            className={`w-1 rounded-full ${
-                              isPlayingVoice === post.id ? "bg-rose-500 animate-pulse" : "bg-rose-300"
-                            }`}
-                          />
+                            key={rep.id}
+                            className="bg-rose-50/40 p-2.5 rounded-xl text-xs space-y-0.5 border-l-2 border-rose-300"
+                          >
+                            <div className="flex justify-between font-bold text-gray-800 text-[11px]">
+                              <span>{rep.authorHandle}</span>
+                              <span className="text-[10px] text-gray-400 font-normal">{rep.time}</span>
+                            </div>
+                            <p className="text-gray-600">{rep.content}</p>
+                          </div>
                         ))}
                       </div>
-                    </div>
-                  )}
-
-                  {/* Crisis Triage Banner */}
-                  {post.isFlagged && (
-                    <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 flex items-center justify-between gap-2 text-xs text-rose-900">
-                      <div className="flex items-center gap-1.5">
-                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                        <span>Counselor alert: We are here to support you.</span>
-                      </div>
-                      <button
-                        onClick={() => setActiveTab("psychologist")}
-                        className="bg-rose-600 text-white px-3 py-1 rounded-lg font-bold text-xs shrink-0"
-                      >
-                        Talk to Counselor
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Reaction & Reply Bar */}
-                  <div className="flex items-center justify-between pt-2 border-t border-rose-50 text-xs text-gray-500">
-                    <button
-                      onClick={() => handleLike(post.id)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all ${
-                        post.hasLiked
-                          ? "bg-rose-50 text-rose-600 font-bold"
-                          : "hover:bg-rose-50 text-gray-500"
-                      }`}
-                    >
-                      <Heart className={`w-4 h-4 ${post.hasLiked ? "fill-rose-500 text-rose-500" : ""}`} />
-                      <span>{post.empathyCount} I hear you</span>
-                    </button>
-
-                    <div className="flex items-center gap-1 text-gray-400">
-                      <MessageCircle className="w-4 h-4" />
-                      <span>{post.replies.length} replies</span>
-                    </div>
-                  </div>
-
-                  {/* Replies List */}
-                  {post.replies.length > 0 && (
-                    <div className="space-y-2 pt-1">
-                      {post.replies.map((rep) => (
-                        <div
-                          key={rep.id}
-                          className="bg-rose-50/40 p-2.5 rounded-xl text-xs space-y-0.5 border-l-2 border-rose-300"
-                        >
-                          <div className="flex justify-between font-bold text-gray-800 text-[11px]">
-                            <span>{rep.authorHandle}</span>
-                            <span className="text-[10px] text-gray-400 font-normal">{rep.time}</span>
-                          </div>
-                          <p className="text-gray-600">{rep.content}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </article>
-              ))}
+                    )}
+                  </article>
+                ))}
+              </div>
             </div>
+
+            {/* Right Sidebar Column (Helplines, Calm Breathing & Shop to Heal) */}
+            <aside className="hidden lg:block lg:col-span-3 space-y-4 sticky top-20">
+              {/* 24/7 Crisis Support Card */}
+              <div className="bg-white p-4 rounded-2xl border border-rose-100/80 shadow-sm space-y-3">
+                <div className="flex items-center gap-2 text-rose-600 font-bold text-xs">
+                  <PhoneCall className="w-4 h-4" />
+                  <span>24/7 Crisis Helplines</span>
+                </div>
+                <p className="text-[11px] text-gray-500 leading-relaxed">
+                  Free, confidential professional care across Kenya whenever you need it.
+                </p>
+                <div className="space-y-2 pt-1">
+                  <a
+                    href="tel:+254722178177"
+                    className="block p-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 transition-all text-xs font-semibold text-rose-700"
+                  >
+                    <div className="text-[10px] text-gray-500 font-normal">Befrienders Kenya</div>
+                    <div className="font-mono font-bold">+254 722 178 177</div>
+                  </a>
+                  <a
+                    href="tel:1199"
+                    className="block p-2.5 rounded-xl bg-gray-50 hover:bg-gray-100 transition-all text-xs font-semibold text-gray-800"
+                  >
+                    <div className="text-[10px] text-gray-500 font-normal">Kenya Red Cross</div>
+                    <div className="font-mono font-bold">1199</div>
+                  </a>
+                </div>
+              </div>
+
+              {/* Quick Breathing Calm Tool */}
+              <div className="bg-gradient-to-br from-rose-500 to-pink-600 text-white p-4 rounded-2xl shadow-sm space-y-2 text-center">
+                <span className="text-2xl block">🌬️</span>
+                <h4 className="font-bold text-xs">Feeling Overwhelmed?</h4>
+                <p className="text-[11px] text-rose-100 leading-relaxed">
+                  Try the 4-7-8 rhythm to slow your racing thoughts.
+                </p>
+                <button
+                  onClick={() => setShowBreathingModal(true)}
+                  className="w-full bg-white text-rose-600 hover:bg-rose-50 py-2 rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95"
+                >
+                  Start Breathing
+                </button>
+              </div>
+
+              {/* Merch Support Impact */}
+              <div className="bg-white p-4 rounded-2xl border border-rose-100/80 shadow-sm space-y-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-gray-900">
+                  <ShoppingBag className="w-3.5 h-3.5 text-rose-500" />
+                  <span>Shop To Heal</span>
+                </div>
+                <p className="text-[11px] text-gray-500 leading-relaxed">
+                  Every TFL gift purchased directly unlocks a free mental wellness care pass for someone in need.
+                </p>
+                <button
+                  onClick={() => setActiveTab("store")}
+                  className="text-xs font-bold text-rose-500 hover:text-rose-600 flex items-center gap-1 pt-1"
+                >
+                  <span>View Merch &amp; Gifts</span>
+                  <ChevronRight className="w-3 h-3" />
+                </button>
+              </div>
+            </aside>
+
           </div>
         )}
 
         {/* TAB 2: GIFTS & MERCH */}
         {activeTab === "store" && (
-          <div className="space-y-4">
+          <div className="space-y-6">
             
             {/* Clean Gentle Banner */}
-            <div className="bg-gradient-to-br from-rose-500 to-pink-500 text-white p-5 rounded-2xl shadow-sm space-y-1">
-              <span className="text-xs font-bold uppercase tracking-wider bg-white/20 px-2.5 py-0.5 rounded-full">
+            <div className="bg-gradient-to-br from-rose-500 to-pink-500 text-white p-6 sm:p-8 rounded-3xl shadow-sm space-y-2">
+              <span className="text-xs font-bold uppercase tracking-wider bg-white/20 px-3 py-1 rounded-full inline-block">
                 Shop To Heal
               </span>
-              <h2 className="font-display font-bold text-xl">TFL Gifts &amp; Merchandise</h2>
-              <p className="text-xs text-rose-100">
-                Every purchase automatically unlocks a <strong>Free SafeSpace Care Pass</strong> for private counselor sessions.
+              <h2 className="font-display font-bold text-2xl sm:text-3xl">TFL Gifts &amp; Merchandise</h2>
+              <p className="text-xs sm:text-sm text-rose-100 max-w-2xl leading-relaxed">
+                Every purchase automatically unlocks a <strong>Free SafeSpace Care Pass</strong> for private counselor sessions for yourself or someone in need.
               </p>
             </div>
 
-            {/* Product Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            {/* Responsive Product Cards Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {products.map((prod) => (
                 <div
                   key={prod.id}
-                  className="bg-white p-4 rounded-2xl border border-rose-100 shadow-sm flex flex-col justify-between space-y-3"
+                  className="bg-white p-5 rounded-2xl border border-rose-100 shadow-sm flex flex-col justify-between space-y-3 hover:border-rose-300 transition-all hover:shadow-md"
                 >
                   <div className="space-y-2">
                     <div className="flex justify-between items-start">
@@ -624,8 +771,8 @@ export default function SafeSpaceApp() {
             </div>
 
             {/* Care Pass Voucher Box */}
-            <div className="bg-white p-4 rounded-2xl border border-rose-100 shadow-sm space-y-2">
-              <h4 className="font-bold text-xs text-gray-900">Have a Care Pass Code?</h4>
+            <div className="max-w-xl mx-auto bg-white p-5 rounded-2xl border border-rose-100 shadow-sm space-y-2">
+              <h4 className="font-bold text-xs sm:text-sm text-gray-900">Have a Care Pass Code?</h4>
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -642,7 +789,7 @@ export default function SafeSpaceApp() {
                       setActiveTab("psychologist");
                     }
                   }}
-                  className="bg-rose-500 text-white font-bold text-xs px-4 py-2 rounded-xl"
+                  className="bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs px-5 py-2 rounded-xl transition-all"
                 >
                   Unlock
                 </button>
@@ -653,90 +800,156 @@ export default function SafeSpaceApp() {
 
         {/* TAB 3: COUNSELOR CHAT */}
         {activeTab === "psychologist" && (
-          <div className="bg-white rounded-2xl border border-rose-100 shadow-sm overflow-hidden flex flex-col h-[520px]">
-            {/* Header */}
-            <div className="p-3.5 border-b border-rose-100 bg-rose-50/50 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-rose-500 text-white flex items-center justify-center font-bold text-xs">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Left Counselor Profile Card */}
+            <div className="lg:col-span-4 bg-white p-5 rounded-2xl border border-rose-100 shadow-sm space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-rose-500 to-pink-400 text-white flex items-center justify-center font-bold text-base shadow-sm">
                   DA
                 </div>
                 <div>
-                  <h3 className="font-bold text-xs sm:text-sm text-gray-900">Dr. Amani W.</h3>
-                  <span className="text-[10px] text-emerald-600 font-medium">● 100% Confidential &amp; Safe</span>
+                  <h3 className="font-bold text-base text-gray-900">Dr. Amani W.</h3>
+                  <p className="text-xs text-rose-600 font-medium">Licensed Clinical Psychologist</p>
                 </div>
               </div>
 
-              <span className="text-[10px] bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full font-bold">
-                {isVoucherUnlocked ? "Care Pass Active ✓" : "Free Session"}
-              </span>
+              <div className="space-y-2 text-xs text-gray-600 border-t border-rose-50 pt-3">
+                <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 p-2.5 rounded-xl font-medium">
+                  <span>🛡️</span>
+                  <span>100% Confidential &amp; End-to-End Encrypted</span>
+                </div>
+                <p className="text-[11px] text-gray-500 leading-relaxed">
+                  Dr. Amani provides compassionate listening, trauma-informed guidance, and coping tools for grief, anxiety, and relationship distress.
+                </p>
+              </div>
+
+              <div className="bg-rose-50/70 p-3 rounded-xl space-y-1 text-xs">
+                <span className="text-[10px] font-bold uppercase text-gray-400">Session Status</span>
+                <div className="font-bold text-rose-700">
+                  {isVoucherUnlocked ? "Care Pass Active ✓ (Unlimited)" : "Free Confidential First Session"}
+                </div>
+              </div>
             </div>
 
-            {/* Chat Messages */}
-            <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-[#FFFDFE] text-xs sm:text-sm">
-              {chatLog.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`flex flex-col ${msg.sender === "user" ? "items-end" : "items-start"}`}
-                >
+            {/* Center Chat Box */}
+            <div className="lg:col-span-8 bg-white rounded-2xl border border-rose-100 shadow-sm overflow-hidden flex flex-col h-[560px]">
+              {/* Header */}
+              <div className="p-3.5 border-b border-rose-100 bg-rose-50/50 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="font-bold text-xs text-gray-900">Direct Consultation Room</span>
+                </div>
+                <span className="text-[10px] bg-rose-100 text-rose-700 px-2.5 py-0.5 rounded-full font-bold">
+                  {isVoucherUnlocked ? "Care Pass Active ✓" : "Free Session"}
+                </span>
+              </div>
+
+              {/* Chat Messages */}
+              <div className="flex-1 p-4 sm:p-5 overflow-y-auto space-y-3.5 bg-[#FFFDFE] text-xs sm:text-sm">
+                {chatLog.map((msg, i) => (
                   <div
-                    className={`max-w-[85%] p-3 rounded-2xl leading-relaxed ${
-                      msg.sender === "user"
-                        ? "bg-rose-500 text-white rounded-br-none shadow-sm"
-                        : "bg-rose-50 text-gray-800 rounded-bl-none border border-rose-100"
-                    }`}
+                    key={i}
+                    className={`flex flex-col ${msg.sender === "user" ? "items-end" : "items-start"}`}
                   >
-                    {msg.text}
+                    <div
+                      className={`max-w-[85%] p-3.5 rounded-2xl leading-relaxed ${
+                        msg.sender === "user"
+                          ? "bg-rose-500 text-white rounded-br-none shadow-sm"
+                          : "bg-rose-50 text-gray-800 rounded-bl-none border border-rose-100 shadow-sm"
+                      }`}
+                    >
+                      {msg.text}
+                    </div>
+                    <span className="text-[9px] text-gray-400 mt-1 px-1">{msg.time}</span>
                   </div>
-                  <span className="text-[9px] text-gray-400 mt-0.5 px-1">{msg.time}</span>
-                </div>
-              ))}
+                ))}
 
-              {isTyping && (
-                <div className="text-xs text-rose-500 bg-rose-50 px-3 py-1.5 rounded-full w-fit">
-                  Dr. Amani is typing...
-                </div>
-              )}
+                {isTyping && (
+                  <div className="text-xs text-rose-500 bg-rose-50 px-3 py-1.5 rounded-full w-fit flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-bounce"></span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-bounce [animation-delay:0.2s]"></span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-bounce [animation-delay:0.4s]"></span>
+                    <span>Dr. Amani is typing...</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Input */}
+              <form onSubmit={handleSendMessage} className="p-3 border-t border-rose-100 bg-white flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Type your message confidentially..."
+                  value={chatMessage}
+                  onChange={(e) => setChatMessage(e.target.value)}
+                  className="flex-1 border border-rose-200 rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-rose-400"
+                />
+                <button
+                  type="submit"
+                  className="bg-rose-500 hover:bg-rose-600 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center active:scale-95 shadow-sm transition-all"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </form>
             </div>
-
-            {/* Input */}
-            <form onSubmit={handleSendMessage} className="p-2.5 border-t border-rose-100 bg-white flex gap-2">
-              <input
-                type="text"
-                placeholder="Type your message confidentially..."
-                value={chatMessage}
-                onChange={(e) => setChatMessage(e.target.value)}
-                className="flex-1 border border-rose-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-rose-400"
-              />
-              <button
-                type="submit"
-                className="bg-rose-500 text-white p-2.5 rounded-xl font-bold text-xs flex items-center justify-center active:scale-95 shadow-sm"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </form>
           </div>
         )}
 
         {/* TAB 4: SELF CARE & BREATHING */}
         {activeTab === "wellness" && (
-          <div className="bg-white p-6 rounded-2xl border border-rose-100 shadow-sm text-center space-y-3">
-            <span className="text-4xl">🌸</span>
-            <h2 className="font-display font-bold text-xl text-gray-900">Take a Gentle Breath</h2>
-            <p className="text-xs text-gray-500 max-w-sm mx-auto leading-relaxed">
-              When thoughts feel too heavy, take 2 minutes with this guided breathing exercise to calm your heart.
-            </p>
-            <button
-              onClick={() => setShowBreathingModal(true)}
-              className="bg-rose-500 text-white font-bold px-6 py-2.5 rounded-full text-xs shadow-md inline-flex items-center gap-1.5 active:scale-95"
-            >
-              <Wind className="w-4 h-4" />
-              <span>Start 4-7-8 Breathing</span>
-            </button>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {/* Card 1: 4-7-8 Breathing */}
+            <div className="bg-white p-6 rounded-2xl border border-rose-100 shadow-sm text-center space-y-3 flex flex-col justify-between">
+              <div className="space-y-2">
+                <span className="text-4xl block">🌬️</span>
+                <h3 className="font-display font-bold text-lg text-gray-900">4-7-8 Deep Breathing</h3>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  Calm your nervous system in 2 minutes using rhythmic oxygen pacing.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowBreathingModal(true)}
+                className="w-full bg-rose-500 hover:bg-rose-600 text-white font-bold py-2.5 rounded-xl text-xs shadow-sm flex items-center justify-center gap-1.5 transition-all"
+              >
+                <Wind className="w-4 h-4" />
+                <span>Start Breathing Session</span>
+              </button>
+            </div>
+
+            {/* Card 2: 5-4-3-2-1 Sensory Grounding */}
+            <div className="bg-white p-6 rounded-2xl border border-rose-100 shadow-sm space-y-3">
+              <span className="text-4xl block text-center">🌿</span>
+              <h3 className="font-display font-bold text-lg text-gray-900 text-center">5-4-3-2-1 Grounding</h3>
+              <ul className="text-xs text-gray-600 space-y-1.5 bg-rose-50/50 p-3 rounded-xl border border-rose-100/60">
+                <li><strong>5</strong> things you can see around you</li>
+                <li><strong>4</strong> things you can physically touch</li>
+                <li><strong>3</strong> things you can hear right now</li>
+                <li><strong>2</strong> things you can smell</li>
+                <li><strong>1</strong> thing you can taste or feel gratitude for</li>
+              </ul>
+            </div>
+
+            {/* Card 3: Emergency Support */}
+            <div className="bg-white p-6 rounded-2xl border border-rose-100 shadow-sm space-y-3 flex flex-col justify-between">
+              <div className="space-y-2 text-center">
+                <span className="text-4xl block">❤️</span>
+                <h3 className="font-display font-bold text-lg text-gray-900">Immediate Safe Haven</h3>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  If thoughts ever become too heavy, remember you never have to carry them alone.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowCrisisModal(true)}
+                className="w-full bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-2.5 rounded-xl text-xs border border-rose-200 flex items-center justify-center gap-1.5 transition-all"
+              >
+                <PhoneCall className="w-4 h-4" />
+                <span>Open Crisis Helplines</span>
+              </button>
+            </div>
           </div>
         )}
 
         {/* SUBTLE FOOTER HELPLINE LINK */}
-        <div className="text-center pt-4 pb-2">
+        <div className="text-center pt-6 pb-2">
           <button
             onClick={() => setShowCrisisModal(true)}
             className="text-xs text-rose-500 hover:underline font-medium inline-flex items-center gap-1"
