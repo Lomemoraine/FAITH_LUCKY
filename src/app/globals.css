@@ -10,8 +10,8 @@
   }
 
   body {
-    background-color: #fff8f9;
-    color: #1f2937;
+    background-color: #fcf9f7;
+    color: #2b2226;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
@@ -105,4 +105,18 @@
 
 .animate-breathe {
   animation: breathePulse 4s ease-in-out infinite;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  body {
+    overscroll-behavior-y: none;
+  }
 }
