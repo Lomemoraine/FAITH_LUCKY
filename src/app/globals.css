@@ -10,9 +10,25 @@
   }
 
   body {
-    background-color: #fff8f9;
-    color: #1f2937;
+    background-color: #fcf9f7;
+    color: #2b2226;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Improved focus styles for accessibility */
+  *:focus-visible {
+    outline: 2px solid #f43f5e;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Reduce motion for users who prefer it */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
@@ -58,4 +74,49 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: #fda4af;
+}
+
+/* Skip to content link */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  padding: 12px 24px;
+  background: #f43f5e;
+  color: white;
+  font-weight: 700;
+  font-size: 14px;
+  border-radius: 0 0 12px 12px;
+  text-decoration: none;
+  transition: top 0.2s ease;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* Breathing animation */
+@keyframes breathePulse {
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+
+.animate-breathe {
+  animation: breathePulse 4s ease-in-out infinite;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  body {
+    overscroll-behavior-y: none;
+  }
 }
