@@ -1,78 +1,132 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Heart,
   MessageCircle,
-  PhoneCall,
   AlertTriangle,
-  Send,
-  ChevronRight,
-  Mic,
+  Trash2,
+  Flag,
   Wind,
   PenLine,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { AppShell, type AppView } from "./components/app-shell";
 import { SupportHome } from "./components/support-home";
+import { CrisisModal } from "./components/crisis-modal";
+import { ComingSoonModal } from "./components/coming-soon-modal";
+import { ReportModal } from "./components/report-modal";
+import { EditProfileModal } from "./components/edit-profile-modal";
+import { VoiceRecorder } from "./components/voice-recorder";
+import { VoicePlayer } from "./components/voice-player";
+import { StoreView } from "./components/store-view";
+import { CounselorView } from "./components/counselor-view";
+import { AVATAR_OPTIONS } from "@/lib/identity/pseudonym";
+import { PublicPost, PublicProfile, RoomSlug } from "@/lib/types";
 
-type Room = "all" | "anxiety" | "relationships" | "burnout" | "grief" | "wins";
-
-interface Post {
-  id: string;
-  authorHandle: string;
-  room: Room;
-  roomLabel: string;
-  content: string;
-  hasVoiceNote?: boolean;
-  voiceDuration?: string;
-  empathyCount: number;
-  hasLiked?: boolean;
-  replies: { id: string; authorHandle: string; content: string; time: string }[];
-  isFlagged?: boolean;
-  timeAgo: string;
-}
-
-interface Product {
-  id: string;
-  name: string;
-  priceKes: number;
-  originalPriceKes: number;
-  description: string;
-  badge: string;
-  unlocksText: string;
-  icon: string;
-  sizes?: string[];
+function getAvatarIcon(avatarId?: string) {
+  const found = AVATAR_OPTIONS.find((a) => a.id === avatarId);
+  return found ? found.icon : "🌸";
 }
 
 export default function SafeSpaceApp() {
   const [activeView, setActiveView] = useState<AppView>("home");
-  const [selectedRoom, setSelectedRoom] = useState<Room>("all");
+  const [selectedRoom, setSelectedRoom] = useState<RoomSlug>("all");
+
+  // Auth / Profile State
+  const [currentProfile, setCurrentProfile] = useState<PublicProfile | null>(null);
+  const [activeVoucherCode, setActiveVoucherCode] = useState<string>("");
+
+  // Feed State
+  const [posts, setPosts] = useState<PublicPost[]>([]);
+  const [isLoadingFeed, setIsLoadingFeed] = useState(false);
+  const [feedError, setFeedError] = useState<string | null>(null);
+
+  // Modals State
   const [showCrisisModal, setShowCrisisModal] = useState(false);
   const [showNewPostModal, setShowNewPostModal] = useState(false);
   const [showBreathingModal, setShowBreathingModal] = useState(false);
-  const [newPostContent, setNewPostContent] = useState("");
-  const [newPostRoom, setNewPostRoom] = useState<Room>("anxiety");
-  const [hasVoiceAttached, setHasVoiceAttached] = useState(false);
-  const [voucherCodeInput, setVoucherCodeInput] = useState("");
-  const [isVoucherUnlocked, setIsVoucherUnlocked] = useState(false);
-  const [chatMessage, setChatMessage] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-  const [isPlayingVoice, setIsPlayingVoice] = useState<string | null>(null);
+  const [showEditProfileModal, setShowEditProfileModal] = useState(false);
+  const [comingSoonModal, setComingSoonModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    features: string[];
+  }>({
+    isOpen: false,
+    title: "",
+    description: "",
+    features: [],
+  });
 
-  // Breathing state
+  // Report Modal State
+  const [reportModal, setReportModal] = useState<{
+    isOpen: boolean;
+    targetKind: "post" | "reply";
+    targetId: string;
+    targetAuthorHandle?: string;
+  }>({
+    isOpen: false,
+    targetKind: "post",
+    targetId: "",
+  });
+
+  // Post Composer State
+  const [newPostContent, setNewPostContent] = useState("");
+  const [newPostRoom, setNewPostRoom] = useState<RoomSlug>("anxiety");
+  const [attachedAudioBlob, setAttachedAudioBlob] = useState<Blob | null>(null);
+  const [attachedAudioDuration, setAttachedAudioDuration] = useState<number | null>(null);
+  const [isSubmittingPost, setIsSubmittingPost] = useState(false);
+  const [postError, setPostError] = useState<string | null>(null);
+
+  // Reply Composer State
+  const [expandedReplies, setExpandedReplies] = useState<{ [postId: string]: boolean }>({});
+  const [replyInput, setReplyInput] = useState<{ [postId: string]: string }>({});
+  const [isSubmittingReply, setIsSubmittingReply] = useState<{ [postId: string]: boolean }>({});
+
+  // Breathing State
   const [breathPhase, setBreathPhase] = useState<"Breathe In" | "Hold" | "Breathe Out">("Breathe In");
   const [breathCount, setBreathCount] = useState(4);
 
-  // Store State
-  const [checkoutProduct, setCheckoutProduct] = useState<Product | null>(null);
-  const [selectedSize, setSelectedSize] = useState<string>("L");
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [customerName, setCustomerName] = useState("");
-  const [paymentSuccessCode, setPaymentSuccessCode] = useState<string | null>(null);
-  const [isProcessingMpesa, setIsProcessingMpesa] = useState(false);
-  const [mpesaCountdown, setMpesaCountdown] = useState(0);
+  const fetchPosts = useCallback(async (room: RoomSlug) => {
+    setIsLoadingFeed(true);
+    setFeedError(null);
+    try {
+      const res = await fetch(`/api/community/posts?roomId=${room}`);
+      const data = await res.json();
+      if (data.posts) {
+        setPosts(data.posts);
+      } else {
+        setPosts([]);
+      }
+    } catch {
+      setFeedError("Unable to load community stories. Please check your connection.");
+    } finally {
+      setIsLoadingFeed(false);
+    }
+  }, []);
 
-  // Breathing interval
+  const initAuthSession = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/anonymous");
+      const data = await res.json();
+      if (data.authenticated && data.profile) {
+        setCurrentProfile(data.profile);
+      }
+    } catch (err) {
+      console.error("Auth init error:", err);
+    }
+  }, []);
+
+  // Initial Auth & Feed Check
+  useEffect(() => {
+    initAuthSession();
+    fetchPosts(selectedRoom);
+  }, [initAuthSession, fetchPosts, selectedRoom]);
+
+  // Breathing Exercise Timer
   useEffect(() => {
     if (!showBreathingModal) return;
     const phases: Array<{ name: "Breathe In" | "Hold" | "Breathe Out"; seconds: number }> = [
@@ -97,226 +151,248 @@ export default function SafeSpaceApp() {
     return () => clearInterval(interval);
   }, [showBreathingModal]);
 
-  // Merch
-  const products: Product[] = [
-    {
-      id: "prod-1",
-      name: "TFL Signature Rose Gold Hoodie",
-      priceKes: 2800,
-      originalPriceKes: 3500,
-      description: "Ultra-soft heavy fleece hoodie with gold embroidery. Warm, soothing, and comfortable.",
-      badge: "Free Therapy Gift Pass",
-      unlocksText: "Includes 1 Free 1-on-1 Session with Dr. Amani",
-      icon: "🧥",
-      sizes: ["S", "M", "L", "XL", "2XL"],
-    },
-    {
-      id: "prod-2",
-      name: "TFL Daily Self-Care & Gratitude Journal",
-      priceKes: 1200,
-      originalPriceKes: 1600,
-      description: "Hardcover guided journal for recording daily thoughts, prayers, and reflections.",
-      badge: "Most Loved",
-      unlocksText: "Includes 1 Free Mental Wellness Check-in",
-      icon: "📔",
-    },
-    {
-      id: "prod-3",
-      name: "TFL 'Talk Freely' Soft Cotton Tee",
-      priceKes: 1500,
-      originalPriceKes: 2000,
-      description: "100% Breathable soft cotton shirt with uplifting words of hope.",
-      badge: "Community Favorite",
-      unlocksText: "Includes 1 Month Access to Counselor Audio Rooms",
-      icon: "👕",
-      sizes: ["S", "M", "L", "XL"],
-    },
-    {
-      id: "prod-4",
-      name: "TFL 'Stay Strong' Rose Gold Bracelet",
-      priceKes: 650,
-      originalPriceKes: 900,
-      description: "Waterproof stainless steel reminder charm that you are loved and never alone.",
-      badge: "Gift of Hope",
-      unlocksText: "Unlocks Verified Supporter Badge",
-      icon: "✨",
-    },
-  ];
-
-  // Feed Posts
-  const [posts, setPosts] = useState<Post[]>([
-    {
-      id: "post-1",
-      authorHandle: "MamaZawadi",
-      room: "anxiety",
-      roomLabel: "Stress & Overwhelm",
-      content:
-        "Sometimes as women and mothers we carry so much silently without telling anyone. Juzi I was feeling so overwhelmed with family and work. Just writing this here makes my chest feel a bit lighter. Thank you for this safe space. 💕",
-      hasVoiceNote: true,
-      voiceDuration: "0:38",
-      empathyCount: 38,
-      replies: [
-        {
-          id: "rep-1",
-          authorHandle: "AmaniSister",
-          content: "Pole sana mama. You are doing a wonderful job. Give yourself permission to pause for 10 minutes today. 🫂",
-          time: "15m ago",
-        },
-      ],
-      timeAgo: "30m ago",
-    },
-    {
-      id: "post-2",
-      authorHandle: "FaithSeeker24",
-      room: "wins",
-      roomLabel: "Small Wins",
-      content:
-        "Small win for today: I managed to take a quiet morning walk, prayed, and drank a full glass of water. Step by step, we will be okay! 🌸✨",
-      empathyCount: 64,
-      replies: [
-        {
-          id: "rep-2",
-          authorHandle: "GracefulHeart",
-          content: "Proud of you sister! Keep taking it one day at a time. ❤️",
-          time: "1h ago",
-        },
-      ],
-      timeAgo: "2h ago",
-    },
-    {
-      id: "post-3",
-      authorHandle: "QuietTears",
-      room: "grief",
-      roomLabel: "Grief & Healing",
-      content:
-        "Lost someone very close to me recently and the house feels so quiet. I feel like crying every evening and I don't know who to talk to without feeling like a burden.",
-      empathyCount: 42,
-      isFlagged: true,
-      replies: [],
-      timeAgo: "4h ago",
-    },
-  ]);
-
-  // Chat
-  const [chatLog, setChatLog] = useState<{ sender: "user" | "therapist"; text: string; time: string }[]>([
-    {
-      sender: "therapist",
-      text: "Habari! I am Dr. Amani, a licensed clinical counselor at TFL SafeSpace. Everything you share here is 100% confidential and safe. How is your heart doing today?",
-      time: "10:30 AM",
-    },
-  ]);
-
-  const toggleVoice = (postId: string) => {
-    if (isPlayingVoice === postId) {
-      setIsPlayingVoice(null);
-    } else {
-      setIsPlayingVoice(postId);
-      setTimeout(() => {
-        setIsPlayingVoice(null);
-      }, 4000);
+  async function ensureAnonymousSession(): Promise<PublicProfile | null> {
+    if (currentProfile) return currentProfile;
+    try {
+      const res = await fetch("/api/auth/anonymous", { method: "POST" });
+      const data = await res.json();
+      if (data.success && data.profile) {
+        setCurrentProfile(data.profile);
+        return data.profile;
+      }
+    } catch (err) {
+      console.error("Ensure session error:", err);
     }
-  };
+    return null;
+  }
 
-  const handleLike = (id: string) => {
+  async function handleCreatePost(e: React.FormEvent) {
+    e.preventDefault();
+    const content = newPostContent.trim() || (attachedAudioBlob ? "Shared a voice story" : "");
+    if (!content) return;
+
+    setIsSubmittingPost(true);
+    setPostError(null);
+
+    try {
+      // Ensure anonymous session exists
+      const session = await ensureAnonymousSession();
+      if (!session) {
+        setPostError("Failed to initialize your anonymous profile. Please try again.");
+        setIsSubmittingPost(false);
+        return;
+      }
+
+      let audioUrl: string | null = null;
+      let audioDuration: number | null = attachedAudioDuration;
+
+      // Upload audio if recorded
+      if (attachedAudioBlob) {
+        const formData = new FormData();
+        formData.append("audio", attachedAudioBlob, "voice-note.webm");
+        if (attachedAudioDuration) {
+          formData.append("duration", String(attachedAudioDuration));
+        }
+
+        const uploadRes = await fetch("/api/community/upload-audio", {
+          method: "POST",
+          body: formData,
+        });
+        const uploadData = await uploadRes.json();
+        if (uploadRes.ok && uploadData.success) {
+          audioUrl = uploadData.audioUrl;
+          audioDuration = uploadData.duration || attachedAudioDuration;
+        }
+      }
+
+      const res = await fetch("/api/community/posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomId: newPostRoom,
+          content,
+          audioUrl,
+          audioDuration,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setPostError(data.error || "Unable to publish your story.");
+      } else {
+        if (data.post) {
+          setPosts((prev) => [data.post, ...prev]);
+        }
+        setNewPostContent("");
+        setAttachedAudioBlob(null);
+        setAttachedAudioDuration(null);
+        setShowNewPostModal(false);
+
+        // If crisis safety screening triggered, show verified Kenya resources
+        if (data.showSafetyResources) {
+          setShowCrisisModal(true);
+        }
+      }
+    } catch {
+      setPostError("Network error while creating your post.");
+    } finally {
+      setIsSubmittingPost(false);
+    }
+  }
+
+  async function handleCreateReply(postId: string) {
+    const content = (replyInput[postId] || "").trim();
+    if (!content) return;
+
+    setIsSubmittingReply((prev) => ({ ...prev, [postId]: true }));
+
+    try {
+      await ensureAnonymousSession();
+
+      const res = await fetch("/api/community/replies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          postId,
+          content,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success && data.reply) {
+        setPosts((prev) =>
+          prev.map((p) => {
+            if (p.id === postId) {
+              return {
+                ...p,
+                replies: [...p.replies, data.reply],
+              };
+            }
+            return p;
+          })
+        );
+        setReplyInput((prev) => ({ ...prev, [postId]: "" }));
+
+        if (data.showSafetyResources) {
+          setShowCrisisModal(true);
+        }
+      }
+    } catch (err) {
+      console.error("Reply error:", err);
+    } finally {
+      setIsSubmittingReply((prev) => ({ ...prev, [postId]: false }));
+    }
+  }
+
+  async function handleToggleReaction(postId: string) {
+    await ensureAnonymousSession();
+
+    // Optimistic update
     setPosts((prev) =>
       prev.map((p) => {
-        if (p.id === id) {
-          const hasLiked = p.hasLiked;
+        if (p.id === postId) {
+          const nextLiked = !p.hasLiked;
           return {
             ...p,
-            hasLiked: !hasLiked,
-            empathyCount: hasLiked ? p.empathyCount - 1 : p.empathyCount + 1,
+            hasLiked: nextLiked,
+            empathyCount: nextLiked ? p.empathyCount + 1 : Math.max(0, p.empathyCount - 1),
           };
         }
         return p;
       })
     );
-  };
 
-  const handleCreatePost = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPostContent.trim()) return;
-
-    const crisisTriggers = ["give up", "end it", "hurt myself", "hopeless", "can't go on", "die", "suicide", "end my life"];
-    const hasCrisis = crisisTriggers.some((t) => newPostContent.toLowerCase().includes(t));
-
-    const roomLabels: Record<Room, string> = {
-      all: "General",
-      anxiety: "Stress & Overwhelm",
-      relationships: "Relationships",
-      burnout: "Work & Pressure",
-      grief: "Grief & Healing",
-      wins: "Small Wins",
-    };
-
-    const newPost: Post = {
-      id: `post-${Date.now()}`,
-      authorHandle: `SisterHope${Math.floor(100 + Math.random() * 900)}`,
-      room: newPostRoom,
-      roomLabel: roomLabels[newPostRoom],
-      content: newPostContent,
-      hasVoiceNote: hasVoiceAttached,
-      voiceDuration: hasVoiceAttached ? "0:30" : undefined,
-      empathyCount: 1,
-      hasLiked: true,
-      replies: [],
-      isFlagged: hasCrisis,
-      timeAgo: "Just now",
-    };
-
-    setPosts([newPost, ...posts]);
-    setNewPostContent("");
-    setHasVoiceAttached(false);
-    setShowNewPostModal(false);
-
-    if (hasCrisis) {
-      setShowCrisisModal(true);
-    }
-  };
-
-  const handleSimulateMpesa = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!phoneNumber) return;
-    setIsProcessingMpesa(true);
-    setMpesaCountdown(5);
-
-    const interval = setInterval(() => {
-      setMpesaCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          setIsProcessingMpesa(false);
-          const generatedCode = `TFL-CARE-${Math.floor(100000 + Math.random() * 900000)}`;
-          setPaymentSuccessCode(generatedCode);
-          return 0;
-        }
-        return prev - 1;
+    try {
+      const res = await fetch("/api/community/reactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postId }),
       });
-    }, 1000);
-  };
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        // Rollback on failure
+        fetchPosts(selectedRoom);
+      }
+    } catch {
+      fetchPosts(selectedRoom);
+    }
+  }
 
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatMessage.trim()) return;
+  async function handleDeletePost(postId: string) {
+    if (!confirm("Are you sure you want to delete this story? This cannot be undone.")) {
+      return;
+    }
 
-    const userMsg = { sender: "user" as const, text: chatMessage, time: "Just now" };
-    setChatLog((prev) => [...prev, userMsg]);
-    setChatMessage("");
-    setIsTyping(true);
+    try {
+      const res = await fetch(`/api/community/posts?id=${postId}`, { method: "DELETE" });
+      if (res.ok) {
+        setPosts((prev) => prev.filter((p) => p.id !== postId));
+      }
+    } catch (err) {
+      console.error("Delete post error:", err);
+    }
+  }
 
-    setTimeout(() => {
-      setIsTyping(false);
-      setChatLog((prev) => [
-        ...prev,
-        {
-          sender: "therapist" as const,
-          text: "Thank you for trusting me with that. You are not alone, and taking things one step at a time is more than enough.",
-          time: "Just now",
-        },
-      ]);
-    }, 1500);
-  };
+  async function handleDeleteReply(postId: string, replyId: string) {
+    if (!confirm("Are you sure you want to delete this reply?")) {
+      return;
+    }
 
-  const roomsList: Array<{ id: Room; label: string; icon: string }> = [
+    try {
+      const res = await fetch(`/api/community/replies?id=${replyId}`, { method: "DELETE" });
+      if (res.ok) {
+        setPosts((prev) =>
+          prev.map((p) => {
+            if (p.id === postId) {
+              return {
+                ...p,
+                replies: p.replies.filter((r) => r.id !== replyId),
+              };
+            }
+            return p;
+          })
+        );
+      }
+    } catch (err) {
+      console.error("Delete reply error:", err);
+    }
+  }
+
+  async function handleResetIdentity() {
+    if (!confirm("This will permanently remove your anonymous profile and all public stories and replies you created. Proceed?")) {
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/community/identity", { method: "DELETE" });
+      if (res.ok) {
+        setCurrentProfile(null);
+        fetchPosts(selectedRoom);
+        alert("Your anonymous identity and content have been deleted.");
+      }
+    } catch {
+      alert("Error resetting identity.");
+    }
+  }
+
+  function handleProfileUpdated(updated: PublicProfile) {
+    setCurrentProfile(updated);
+    // Update local author handles in feed
+    setPosts((prev) =>
+      prev.map((p) => {
+        if (p.isAuthor) {
+          return {
+            ...p,
+            authorHandle: updated.anonymous_handle,
+            authorAvatar: updated.avatar_id,
+          };
+        }
+        return p;
+      })
+    );
+  }
+
+  const roomsList: Array<{ id: RoomSlug; label: string; icon: string }> = [
     { id: "all", label: "All Stories", icon: "🌸" },
     { id: "anxiety", label: "Stress & Anxiety", icon: "🌪️" },
     { id: "relationships", label: "Relationships", icon: "💔" },
@@ -325,38 +401,67 @@ export default function SafeSpaceApp() {
     { id: "wins", label: "Small Wins", icon: "🌱" },
   ];
 
-  const filteredPosts = posts.filter(
-    (p) => (selectedRoom === "all" ? true : p.room === selectedRoom)
-  );
-
   return (
     <AppShell
       activeView={activeView}
-      onNavigate={setActiveView}
+      onNavigate={(view) => setActiveView(view)}
       onOpenCrisis={() => setShowCrisisModal(true)}
     >
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-12">
+        {/* Support Home View */}
         {activeView === "home" && (
           <SupportHome
-            onNavigate={setActiveView}
+            onNavigate={(view) => setActiveView(view)}
             onShare={() => setShowNewPostModal(true)}
             onBreathe={() => setShowBreathingModal(true)}
           />
         )}
 
+        {/* Community Feed View */}
         {activeView === "community" && (
           <div className="mx-auto max-w-2xl space-y-6">
             <header className="space-y-3">
-              <h1 className="text-balance font-display text-3xl font-bold tracking-[-0.03em] text-[#21191d] sm:text-4xl">
-                Stories from people who understand
-              </h1>
+              <div className="flex items-center justify-between">
+                <h1 className="text-balance font-display text-3xl font-bold tracking-[-0.03em] text-[#21191d] sm:text-4xl">
+                  Stories from people who understand
+                </h1>
+              </div>
               <p className="max-w-xl text-sm leading-6 text-[#6d6267] sm:text-base">
                 Read quietly, respond with empathy, or share whenever you feel ready.
               </p>
+
+              {/* Anonymous identity badge */}
+              {currentProfile && (
+                <div className="flex items-center justify-between p-3.5 rounded-2xl bg-warm-50 border border-warm-200/70 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-7 h-7 rounded-full bg-rose-100 flex items-center justify-center text-sm shadow-sm">
+                      {getAvatarIcon(currentProfile.avatar_id)}
+                    </span>
+                    <span className="text-slate-700">
+                      Posting as: <strong className="text-slate-900">@{currentProfile.anonymous_handle}</strong>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2.5">
+                    <button
+                      onClick={() => setShowEditProfileModal(true)}
+                      className="text-rose-600 hover:text-rose-800 font-semibold underline"
+                    >
+                      Customize Handle
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button
+                      onClick={handleResetIdentity}
+                      className="text-slate-500 hover:text-slate-700 font-medium"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              )}
             </header>
 
             <div className="space-y-5">
-              
+              {/* Room Filter Pills */}
               <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1 text-sm font-medium" role="group" aria-label="Filter by topic">
                 {roomsList.map((room) => (
                   <button
@@ -365,7 +470,7 @@ export default function SafeSpaceApp() {
                     aria-pressed={selectedRoom === room.id}
                     className={`min-h-11 whitespace-nowrap rounded-full border px-4 py-2 transition-colors ${
                       selectedRoom === room.id
-                        ? "border-rose-500 bg-rose-500 font-bold text-white"
+                        ? "border-rose-500 bg-rose-500 font-bold text-white shadow-sm"
                         : "border-[#eadfe1] bg-white text-[#6d6267] hover:border-rose-200"
                     }`}
                   >
@@ -374,9 +479,10 @@ export default function SafeSpaceApp() {
                 ))}
               </div>
 
+              {/* Post Trigger Button */}
               <button
                 onClick={() => setShowNewPostModal(true)}
-                className="flex min-h-16 w-full items-center gap-4 rounded-2xl bg-white p-4 text-left shadow-[0_10px_35px_rgba(64,35,44,0.08)] transition-shadow hover:shadow-[0_14px_40px_rgba(64,35,44,0.12)]"
+                className="flex min-h-16 w-full items-center gap-4 rounded-2xl bg-white p-4 text-left shadow-[0_10px_35px_rgba(64,35,44,0.08)] transition-shadow hover:shadow-[0_14px_40px_rgba(64,35,44,0.12)] border border-rose-100/50"
                 aria-label="Open composer to share a new story"
               >
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
@@ -385,409 +491,307 @@ export default function SafeSpaceApp() {
                 <div className="flex-1 text-sm text-[#766b70]">
                   How is your heart feeling today?
                 </div>
-                <span className="rounded-xl bg-rose-500 px-4 py-2 text-sm font-bold text-white">
+                <span className="rounded-xl bg-rose-500 px-4 py-2 text-sm font-bold text-white shadow-sm">
                   Share
                 </span>
               </button>
 
-              {/* Posts Stream */}
-              <div className="space-y-4">
-                {filteredPosts.map((post) => (
-                  <article
-                    key={post.id}
-                    className="bg-white p-5 rounded-2xl border border-rose-100/70 shadow-sm space-y-4 transition-all hover:border-rose-200"
+              {/* Feed Content */}
+              {isLoadingFeed ? (
+                <div className="p-12 text-center text-slate-400">
+                  <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-3 text-rose-400" />
+                  <p className="text-sm">Loading community stories...</p>
+                </div>
+              ) : feedError ? (
+                <div className="bg-white p-8 rounded-2xl border border-rose-100 text-center space-y-3">
+                  <AlertTriangle className="w-8 h-8 text-amber-500 mx-auto" />
+                  <p className="text-sm text-slate-700">{feedError}</p>
+                  <button
+                    onClick={() => fetchPosts(selectedRoom)}
+                    className="px-4 py-2 rounded-xl bg-rose-500 text-white text-xs font-semibold"
                   >
-                    {/* Post Header */}
-                    <div className="flex items-start justify-between gap-3 text-sm">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span className="w-10 h-10 rounded-full bg-rose-50 text-rose-700 flex items-center justify-center font-bold text-sm">
-                          {post.authorHandle.substring(0, 2).toUpperCase()}
-                        </span>
-                        <div className="min-w-0">
-                          <span className="block truncate font-bold text-gray-900">{post.authorHandle}</span>
-                          <span className="block text-xs text-gray-400">{post.timeAgo}</span>
-                        </div>
-                      </div>
+                    Retry
+                  </button>
+                </div>
+              ) : posts.length === 0 ? (
+                <div className="bg-white p-12 rounded-3xl border border-rose-100 text-center space-y-2">
+                  <span className="text-3xl">🌸</span>
+                  <h3 className="font-bold text-slate-900 text-base">Be the first to share here</h3>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    This room is quiet right now. You can share a thought, prayer, or small victory safely and anonymously.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {posts.map((post) => {
+                    const isExpanded = !!expandedReplies[post.id];
 
-                      <span className="max-w-32 shrink-0 rounded-full bg-rose-50 px-3 py-1 text-center text-xs font-medium leading-4 text-rose-500">
-                        {post.roomLabel}
-                      </span>
-                    </div>
-
-                    {/* Body Text */}
-                    <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">
-                      {post.content}
-                    </p>
-
-                    {/* Voice Note */}
-                    {post.hasVoiceNote && (
-                      <div className="bg-rose-50/50 border border-rose-100 p-3 rounded-xl flex items-center justify-between gap-3 text-sm">
-                        <div className="flex items-center gap-3">
-                          <button
-                            onClick={() => toggleVoice(post.id)}
-                            aria-label={isPlayingVoice === post.id ? "Pause voice story" : "Play voice story"}
-                            className="w-9 h-9 rounded-full bg-rose-500 text-white flex items-center justify-center font-bold text-sm shadow-sm"
-                          >
-                            {isPlayingVoice === post.id ? "⏸" : "▶"}
-                          </button>
-                          <div>
-                            <span className="font-bold text-gray-800 text-sm block">Voice Story</span>
-                            <span className="text-xs text-gray-400">{post.voiceDuration}</span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1 h-4" aria-hidden="true">
-                          {[40, 80, 30, 90, 50, 70, 40, 100].map((h, i) => (
-                            <div
-                              key={i}
-                              style={{ height: `${h}%` }}
-                              className={`w-1 rounded-full ${
-                                isPlayingVoice === post.id ? "bg-rose-500 animate-pulse" : "bg-rose-300"
-                              }`}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Crisis Triage Banner */}
-                    {post.isFlagged && (
-                      <div className="flex flex-col items-stretch justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900 sm:flex-row sm:items-center">
-                        <div className="flex items-center gap-2">
-                          <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" aria-hidden="true" />
-                          <span>Counselor alert: We are here to support you.</span>
-                        </div>
-                        <button
-                          onClick={() => setActiveView("psychologist")}
-                          className="min-h-11 shrink-0 rounded-lg bg-rose-600 px-4 py-2 text-sm font-bold text-white"
-                        >
-                          Talk to Counselor
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Reaction & Reply Bar */}
-                    <div className="flex items-center justify-between pt-3 border-t border-rose-50 text-sm text-gray-500">
-                      <button
-                        onClick={() => handleLike(post.id)}
-                        aria-label={`${post.hasLiked ? "Remove empathy" : "Show empathy"} - ${post.empathyCount} people heard`}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all min-h-[40px] ${
-                          post.hasLiked
-                            ? "bg-rose-50 text-rose-600 font-bold"
-                            : "hover:bg-rose-50 text-gray-500"
-                        }`}
+                    return (
+                      <article
+                        key={post.id}
+                        className="bg-white p-5 rounded-2xl border border-rose-100/70 shadow-sm space-y-4 transition-all hover:border-rose-200"
                       >
-                        <Heart className={`w-5 h-5 ${post.hasLiked ? "fill-rose-500 text-rose-500" : ""}`} />
-                        <span>{post.empathyCount} I hear you</span>
-                      </button>
-
-                      <div className="flex items-center gap-2 text-gray-400">
-                        <MessageCircle className="w-5 h-5" />
-                        <span>{post.replies.length} replies</span>
-                      </div>
-                    </div>
-
-                    {/* Replies List */}
-                    {post.replies.length > 0 && (
-                      <div className="space-y-3 pt-1">
-                        {post.replies.map((rep) => (
-                          <div
-                            key={rep.id}
-                            className="bg-rose-50/40 p-3 rounded-xl text-sm space-y-1 border-l-2 border-rose-300"
-                          >
-                            <div className="flex justify-between font-bold text-gray-800 text-xs">
-                              <span>{rep.authorHandle}</span>
-                              <span className="text-xs text-gray-400 font-normal">{rep.time}</span>
+                        {/* Post Header */}
+                        <div className="flex items-start justify-between gap-3 text-sm">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="w-10 h-10 rounded-full bg-rose-50 text-rose-700 flex items-center justify-center text-lg shadow-sm">
+                              {getAvatarIcon(post.authorAvatar)}
+                            </span>
+                            <div className="min-w-0">
+                              <span className="block truncate font-bold text-gray-900">
+                                @{post.authorHandle}
+                              </span>
+                              <span className="block text-xs text-gray-400">
+                                {new Date(post.createdAt).toLocaleDateString([], {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </span>
                             </div>
-                            <p className="text-gray-600">{rep.content}</p>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </article>
-                ))}
-              </div>
-            </div>
 
-          </div>
-        )}
+                          <div className="flex items-center gap-2">
+                            <span className="rounded-full bg-rose-50 px-3 py-1 text-center text-xs font-medium leading-4 text-rose-600">
+                              {post.roomName}
+                            </span>
+                          </div>
+                        </div>
 
-        {/* TAB 2: GIFTS & MERCH */}
-        {activeView === "store" && (
-          <div className="mx-auto max-w-5xl space-y-8">
-            <header className="grid items-end gap-6 border-b border-[#e5dadd] pb-7 sm:grid-cols-[1fr_auto]">
-              <div>
-                <h1 className="font-display text-3xl font-bold tracking-[-0.03em] text-[#21191d] sm:text-4xl">
-                  Gifts that help fund care
-                </h1>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-[#6d6267] sm:text-base">
-                  Every purchase includes a SafeSpace care benefit for you or someone who needs support.
-                </p>
-              </div>
-              <div className="rounded-xl bg-rose-500 px-4 py-3 text-sm font-bold text-white">
-                Shop to heal
-              </div>
-            </header>
+                        {/* Body Text */}
+                        {post.content && (
+                          <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">
+                            {post.content}
+                          </p>
+                        )}
 
-            {/* Responsive Product Cards Grid */}
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-              {products.map((prod) => (
-                <div
-                  key={prod.id}
-                  className="bg-white p-6 rounded-2xl border border-rose-100 shadow-sm flex flex-col justify-between space-y-4 hover:border-rose-300 transition-all hover:shadow-md"
-                >
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-start">
-                      <span className="text-4xl">{prod.icon}</span>
-                      <span className="text-xs font-bold bg-rose-50 text-rose-600 px-3 py-1 rounded-full border border-rose-100">
-                        {prod.badge}
-                      </span>
-                    </div>
+                        {/* Audio Player if present */}
+                        {post.audioUrl && (
+                          <div className="pt-1">
+                            <VoicePlayer
+                              audioUrl={post.audioUrl}
+                              duration={post.audioDuration}
+                            />
+                          </div>
+                        )}
 
-                    <h3 className="font-bold text-base text-gray-900">{prod.name}</h3>
-                    <p className="text-sm text-gray-500 line-clamp-2 leading-relaxed">{prod.description}</p>
-                    
-                    <div className="text-xs font-medium text-emerald-700 bg-emerald-50 p-3 rounded-xl">
-                      ✨ {prod.unlocksText}
-                    </div>
-                  </div>
+                        {/* Actions bar */}
+                        <div className="flex items-center justify-between border-t border-rose-50 pt-3 text-xs text-gray-500">
+                          <div className="flex items-center gap-4">
+                            <button
+                              onClick={() => handleToggleReaction(post.id)}
+                              className={`flex items-center gap-1.5 font-medium transition-colors ${
+                                post.hasLiked ? "text-rose-600 font-bold" : "text-gray-500 hover:text-rose-600"
+                              }`}
+                              aria-label="Send empathy reaction"
+                            >
+                              <Heart className={`w-4 h-4 ${post.hasLiked ? "fill-rose-500 text-rose-500" : ""}`} />
+                              <span>{post.empathyCount} Empathy</span>
+                            </button>
 
-                  <div className="flex items-center justify-between pt-3 border-t border-rose-50">
-                    <span className="font-bold text-lg text-gray-900">
-                      KES {prod.priceKes.toLocaleString()}
-                    </span>
-                    <button
-                      onClick={() => {
-                        setCheckoutProduct(prod);
-                        setPaymentSuccessCode(null);
-                      }}
-                      className="min-h-[44px] bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold px-4 py-2.5 rounded-xl flex items-center gap-1.5 shadow-sm transition-all"
-                      aria-label={`Buy ${prod.name} for KES ${prod.priceKes} via M-Pesa`}
-                    >
-                      <span>Buy M-Pesa</span>
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
+                            <button
+                              onClick={() =>
+                                setExpandedReplies((prev) => ({ ...prev, [post.id]: !prev[post.id] }))
+                              }
+                              className="flex items-center gap-1.5 font-medium hover:text-gray-700"
+                            >
+                              <MessageCircle className="w-4 h-4" />
+                              <span>{post.replies.length} Replies</span>
+                              {isExpanded ? (
+                                <ChevronUp className="w-3.5 h-3.5" />
+                              ) : (
+                                <ChevronDown className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() =>
+                                setReportModal({
+                                  isOpen: true,
+                                  targetKind: "post",
+                                  targetId: post.id,
+                                  targetAuthorHandle: post.authorHandle,
+                                })
+                              }
+                              className="text-gray-400 hover:text-rose-600 transition-colors"
+                              title="Report story"
+                            >
+                              <Flag className="w-3.5 h-3.5" />
+                            </button>
+
+                            {post.isAuthor && (
+                              <button
+                                onClick={() => handleDeletePost(post.id)}
+                                className="text-gray-400 hover:text-rose-600 transition-colors"
+                                title="Delete your post"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Replies Section */}
+                        {isExpanded && (
+                          <div className="pt-3 border-t border-slate-100 space-y-3">
+                            {post.replies.length > 0 && (
+                              <div className="space-y-2">
+                                {post.replies.map((reply) => (
+                                  <div
+                                    key={reply.id}
+                                    className="p-3 rounded-xl bg-sand-50/70 border border-sand-200/60 text-xs space-y-1"
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                                        <span>{getAvatarIcon(reply.authorAvatar)}</span>
+                                        <span>@{reply.authorHandle}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-slate-400">
+                                          {new Date(reply.createdAt).toLocaleTimeString([], {
+                                            hour: "2-digit",
+                                            minute: "2-digit",
+                                          })}
+                                        </span>
+                                        <button
+                                          onClick={() =>
+                                            setReportModal({
+                                              isOpen: true,
+                                              targetKind: "reply",
+                                              targetId: reply.id,
+                                              targetAuthorHandle: reply.authorHandle,
+                                            })
+                                          }
+                                          className="text-slate-400 hover:text-rose-600"
+                                        >
+                                          <Flag className="w-3 h-3" />
+                                        </button>
+                                        {reply.isAuthor && (
+                                          <button
+                                            onClick={() => handleDeleteReply(post.id, reply.id)}
+                                            className="text-slate-400 hover:text-rose-600"
+                                          >
+                                            <Trash2 className="w-3 h-3" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">
+                                      {reply.content}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Reply Input */}
+                            <div className="flex items-center gap-2 pt-1">
+                              <input
+                                type="text"
+                                placeholder="Write a supportive reply..."
+                                value={replyInput[post.id] || ""}
+                                onChange={(e) =>
+                                  setReplyInput({ ...replyInput, [post.id]: e.target.value })
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleCreateReply(post.id);
+                                  }
+                                }}
+                                className="flex-1 text-xs px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-rose-400"
+                              />
+                              <button
+                                onClick={() => handleCreateReply(post.id)}
+                                disabled={
+                                  isSubmittingReply[post.id] || !(replyInput[post.id] || "").trim()
+                                }
+                                className="px-3 py-2 rounded-xl bg-rose-500 text-white text-xs font-semibold hover:bg-rose-600 disabled:opacity-50 transition-colors"
+                              >
+                                Reply
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
-
-            {/* Care Pass Voucher Box */}
-            <div className="max-w-xl mx-auto bg-white p-6 rounded-2xl border border-rose-100 shadow-sm space-y-3">
-              <h3 className="font-bold text-base text-gray-900">Have a Care Pass Code?</h3>
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <input
-                  type="text"
-                  placeholder="e.g. TFL-CARE-948102"
-                  value={voucherCodeInput}
-                  onChange={(e) => setVoucherCodeInput(e.target.value)}
-                  aria-label="Enter your care pass code"
-                  className="flex-1 border border-rose-200 rounded-xl px-4 py-3 text-sm font-mono uppercase focus:outline-none focus:border-rose-400 min-h-[48px]"
-                />
-                <button
-                  onClick={() => {
-                    if (voucherCodeInput.trim()) {
-                      setIsVoucherUnlocked(true);
-                      alert("🎉 Care Pass Verified! Opening counselor room.");
-                      setActiveView("psychologist");
-                    }
-                  }}
-                  className="min-h-[48px] bg-rose-500 hover:bg-rose-600 text-white font-bold text-sm px-6 py-3 rounded-xl transition-all"
-                >
-                  Unlock
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: COUNSELOR CHAT */}
-        {activeView === "psychologist" && (
-          <div className="space-y-7">
-            <header>
-              <h1 className="font-display text-3xl font-bold tracking-[-0.03em] text-[#21191d] sm:text-4xl">
-                Talk with Dr. Amani
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-[#6d6267] sm:text-base">
-                A confidential space to speak openly and take the next step at your pace.
-              </p>
-            </header>
-            <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
-            {/* Left Counselor Profile Card */}
-            <div className="lg:col-span-4 bg-white p-6 rounded-2xl border border-rose-100 shadow-sm space-y-5">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-500 to-pink-400 text-white flex items-center justify-center font-bold text-lg shadow-sm">
-                  DA
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg text-gray-900">Dr. Amani W.</h3>
-                  <p className="text-sm text-rose-600 font-medium">Licensed Clinical Psychologist</p>
-                </div>
-              </div>
-
-              <div className="space-y-3 text-sm text-gray-600 border-t border-rose-50 pt-4">
-                <div className="flex items-center gap-2 text-emerald-700 bg-emerald-50 p-3 rounded-xl font-medium">
-                  <span>🛡️</span>
-                  <span>100% Confidential &amp; Encrypted</span>
-                </div>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Dr. Amani provides compassionate listening, trauma-informed guidance, and coping tools for grief, anxiety, and relationship distress.
-                </p>
-              </div>
-
-              <div className="bg-rose-50/70 p-4 rounded-xl space-y-1.5 text-sm">
-                <span className="text-xs font-bold uppercase text-gray-400">Session Status</span>
-                <div className="font-bold text-rose-700">
-                  {isVoucherUnlocked ? "Care Pass Active ✓ (Unlimited)" : "Free Confidential First Session"}
-                </div>
-              </div>
-            </div>
-
-            {/* Center Chat Box */}
-            <div className="lg:col-span-8 bg-white rounded-2xl border border-rose-100 shadow-sm overflow-hidden flex flex-col h-[600px]">
-              {/* Header */}
-              <div className="p-4 border-b border-rose-100 bg-rose-50/50 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true"></span>
-                  <span className="font-bold text-sm text-gray-900">Direct Consultation Room</span>
-                </div>
-                <span className="text-xs bg-rose-100 text-rose-700 px-3 py-1 rounded-full font-bold">
-                  {isVoucherUnlocked ? "Care Pass Active ✓" : "Free Session"}
-                </span>
-              </div>
-
-              {/* Chat Messages */}
-              <div className="flex-1 p-5 sm:p-6 overflow-y-auto space-y-4 bg-[#FFFDFE]" role="log" aria-label="Chat messages with Dr. Amani" aria-live="polite">
-                {chatLog.map((msg, i) => (
-                  <div
-                    key={i}
-                    className={`flex flex-col ${msg.sender === "user" ? "items-end" : "items-start"}`}
-                  >
-                    <div
-                      className={`max-w-[85%] p-4 rounded-2xl leading-relaxed text-sm ${
-                        msg.sender === "user"
-                          ? "bg-rose-500 text-white rounded-br-none shadow-sm"
-                          : "bg-rose-50 text-gray-800 rounded-bl-none border border-rose-100 shadow-sm"
-                      }`}
-                    >
-                      {msg.text}
-                    </div>
-                    <span className="text-xs text-gray-400 mt-1 px-1">{msg.time}</span>
-                  </div>
-                ))}
-
-                {isTyping && (
-                  <div className="text-sm text-rose-500 bg-rose-50 px-4 py-2 rounded-full w-fit flex items-center gap-2" aria-label="Dr. Amani is typing">
-                    <span className="w-2 h-2 rounded-full bg-rose-400 animate-bounce"></span>
-                    <span className="w-2 h-2 rounded-full bg-rose-400 animate-bounce [animation-delay:0.2s]"></span>
-                    <span className="w-2 h-2 rounded-full bg-rose-400 animate-bounce [animation-delay:0.4s]"></span>
-                    <span>Dr. Amani is typing...</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Input */}
-              <form onSubmit={handleSendMessage} className="p-4 border-t border-rose-100 bg-white flex gap-3">
-                <label htmlFor="chat-input" className="sr-only">Type your message</label>
-                <input
-                  id="chat-input"
-                  type="text"
-                  placeholder="Type your message confidentially..."
-                  value={chatMessage}
-                  onChange={(e) => setChatMessage(e.target.value)}
-                  className="flex-1 border border-rose-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-rose-400 min-h-[48px]"
-                />
-                <button
-                  type="submit"
-                  className="min-h-[48px] min-w-[48px] bg-rose-500 hover:bg-rose-600 text-white px-5 py-3 rounded-xl font-bold text-sm flex items-center justify-center active:scale-95 shadow-sm transition-all"
-                  aria-label="Send message"
-                >
-                  <Send className="w-5 h-5" />
-                </button>
-              </form>
-            </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* TAB 4: SELF CARE & BREATHING */}
+        {/* Wellness & Guided Breathing View */}
         {activeView === "wellness" && (
-          <div className="space-y-7">
-            <header>
-              <h1 className="font-display text-3xl font-bold tracking-[-0.03em] text-[#21191d] sm:text-4xl">
-                Take one gentle minute for yourself
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-[#6d6267] sm:text-base">
-                Choose a calming exercise or reach immediate support when things feel too heavy.
-              </p>
-            </header>
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-            {/* Card 1: 4-7-8 Breathing */}
-            <div className="bg-white p-8 rounded-2xl border border-rose-100 shadow-sm text-center space-y-4 flex flex-col justify-between">
-              <div className="space-y-3">
-                <span className="text-5xl block" aria-hidden="true">🌬️</span>
-                <h3 className="font-display font-bold text-xl text-gray-900">4-7-8 Deep Breathing</h3>
-                <p className="text-sm text-gray-500 leading-relaxed">
-                  Calm your nervous system in 2 minutes using rhythmic oxygen pacing.
+          <div className="mx-auto max-w-xl text-center space-y-6">
+            <h1 className="font-display text-3xl font-bold text-slate-900">
+              Gentle Self-Care & Breathing
+            </h1>
+            <p className="text-sm text-slate-600">
+              Take a moment to pause. When overwhelming thoughts crowd in, grounding your physical breath can restore calm.
+            </p>
+
+            <div className="p-8 rounded-3xl bg-white border border-rose-100 shadow-sm space-y-6">
+              <div className="w-24 h-24 mx-auto rounded-full bg-rose-50 border-4 border-rose-200 flex items-center justify-center text-rose-600 animate-pulse">
+                <Wind className="w-10 h-10" />
+              </div>
+
+              <div>
+                <h3 className="text-xl font-bold text-slate-900 mb-1">4-7-8 Breathing</h3>
+                <p className="text-xs text-slate-500">
+                  Inhale quietly through the nose for 4s, hold for 7s, and exhale completely through the mouth for 8s.
                 </p>
               </div>
+
               <button
                 onClick={() => setShowBreathingModal(true)}
-                className="w-full min-h-[48px] bg-rose-500 hover:bg-rose-600 text-white font-bold py-3 rounded-xl text-sm shadow-sm flex items-center justify-center gap-2 transition-all"
-                aria-label="Start 4-7-8 breathing exercise"
+                className="px-6 py-3 rounded-2xl bg-rose-500 hover:bg-rose-600 text-white font-semibold text-sm transition-colors shadow-sm"
               >
-                <Wind className="w-5 h-5" />
-                <span>Start Breathing Session</span>
+                Begin 2-Minute Guided Session
               </button>
-            </div>
-
-            {/* Card 2: 5-4-3-2-1 Sensory Grounding */}
-            <div className="bg-white p-8 rounded-2xl border border-rose-100 shadow-sm space-y-4">
-              <span className="text-5xl block text-center" aria-hidden="true">🌿</span>
-              <h3 className="font-display font-bold text-xl text-gray-900 text-center">5-4-3-2-1 Grounding</h3>
-              <ul className="text-sm text-gray-600 space-y-2 bg-rose-50/50 p-4 rounded-xl border border-rose-100/60" role="list">
-                <li><strong>5</strong> things you can see around you</li>
-                <li><strong>4</strong> things you can physically touch</li>
-                <li><strong>3</strong> things you can hear right now</li>
-                <li><strong>2</strong> things you can smell</li>
-                <li><strong>1</strong> thing you can taste or feel gratitude for</li>
-              </ul>
-            </div>
-
-            {/* Card 3: Emergency Support */}
-            <div className="bg-white p-8 rounded-2xl border border-rose-100 shadow-sm space-y-4 flex flex-col justify-between">
-              <div className="space-y-3 text-center">
-                <span className="text-5xl block" aria-hidden="true">❤️</span>
-                <h3 className="font-display font-bold text-xl text-gray-900">Immediate Safe Haven</h3>
-                <p className="text-sm text-gray-500 leading-relaxed">
-                  If thoughts ever become too heavy, remember you never have to carry them alone.
-                </p>
-              </div>
-              <button
-                onClick={() => setShowCrisisModal(true)}
-                className="w-full min-h-[48px] bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-3 rounded-xl text-sm border border-rose-200 flex items-center justify-center gap-2 transition-all"
-                aria-label="Open crisis helpline numbers"
-              >
-                <PhoneCall className="w-5 h-5" />
-                <span>Open Crisis Helplines</span>
-              </button>
-            </div>
             </div>
           </div>
         )}
 
+        {/* TFL Care Gifts & Merch Store View */}
+        {activeView === "store" && (
+          <StoreView
+            onGoToCounselor={(code) => {
+              if (code) {
+                setActiveVoucherCode(code);
+              }
+              setActiveView("psychologist");
+            }}
+          />
+        )}
+
+        {/* Verified Counselor 1-on-1 Consultation View */}
+        {activeView === "psychologist" && (
+          <CounselorView
+            initialVoucherCode={activeVoucherCode}
+            onGoToStore={() => setActiveView("store")}
+            onOpenCrisis={() => setShowCrisisModal(true)}
+          />
+        )}
       </div>
 
-      {/* MODAL 1: SHARE STORY */}
+      {/* New Post Modal */}
       {showNewPostModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn" role="dialog" aria-modal="true" aria-labelledby="share-story-title">
-          <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl border border-rose-100 space-y-4">
-            <div className="flex justify-between items-center pb-3 border-b border-rose-100">
-              <h2 id="share-story-title" className="font-bold text-lg text-gray-900">Share Your Story</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-rose-100 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-900">Share Story or Voice Note</h3>
               <button
-                onClick={() => setShowNewPostModal(false)}
-                className="min-h-[44px] min-w-[44px] rounded-full bg-rose-50 text-gray-500 flex items-center justify-center text-sm font-bold"
-                aria-label="Close share story dialog"
+                onClick={() => {
+                  setShowNewPostModal(false);
+                  setAttachedAudioBlob(null);
+                  setAttachedAudioDuration(null);
+                }}
+                className="text-slate-400 hover:text-slate-600"
               >
                 ✕
               </button>
@@ -795,269 +799,148 @@ export default function SafeSpaceApp() {
 
             <form onSubmit={handleCreatePost} className="space-y-4">
               <div>
-                <label htmlFor="post-topic" className="text-sm font-bold text-gray-700 block mb-1.5">Choose Topic</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Choose Community Room
+                </label>
                 <select
-                  id="post-topic"
                   value={newPostRoom}
-                  onChange={(e) => setNewPostRoom(e.target.value as Room)}
-                  className="w-full border border-rose-200 rounded-xl p-3 text-sm text-gray-800 focus:outline-none focus:border-rose-400 font-medium min-h-[48px]"
+                  onChange={(e) => setNewPostRoom(e.target.value as RoomSlug)}
+                  className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-rose-500 bg-white"
                 >
-                  <option value="anxiety">🌪️ Stress &amp; Anxiety</option>
-                  <option value="relationships">💔 Relationships</option>
-                  <option value="burnout">💼 Work &amp; Pressure</option>
-                  <option value="grief">🕊️ Grief &amp; Loss</option>
-                  <option value="wins">🌱 Small Wins</option>
+                  <option value="anxiety">🌪️ Stress & Overwhelm</option>
+                  <option value="relationships">💔 Relationships & Family</option>
+                  <option value="burnout">💼 Work & Pressure</option>
+                  <option value="grief">🕊️ Grief & Healing</option>
+                  <option value="wins">🌱 Small Wins & Gratitude</option>
                 </select>
               </div>
 
               <div>
-                <label htmlFor="post-content" className="text-sm font-bold text-gray-700 block mb-1.5">What is on your heart?</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Your Story {attachedAudioBlob ? "(Optional with Voice Note)" : ""}
+                </label>
                 <textarea
-                  id="post-content"
-                  rows={4}
-                  placeholder="Share freely without judgment..."
                   value={newPostContent}
                   onChange={(e) => setNewPostContent(e.target.value)}
-                  className="w-full border border-rose-200 rounded-xl p-4 text-sm text-gray-800 focus:outline-none focus:border-rose-400 leading-relaxed"
+                  placeholder="Share what is on your mind or record a quiet voice note below..."
+                  rows={4}
+                  required={!attachedAudioBlob}
+                  className="w-full text-sm p-4 border border-slate-200 rounded-2xl focus:outline-none focus:border-rose-500 resize-none"
                 />
               </div>
 
-              <div className="flex items-center justify-between p-3 rounded-xl bg-rose-50 text-sm">
-                <span className="text-gray-700 font-medium flex items-center gap-2">
-                  <Mic className="w-5 h-5 text-rose-500" />
-                  Voice Note
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setHasVoiceAttached(!hasVoiceAttached)}
-                  aria-label={hasVoiceAttached ? "Remove voice note" : "Add voice note"}
-                  aria-pressed={hasVoiceAttached}
-                  className={`min-h-[40px] px-4 py-2 rounded-lg text-sm font-bold transition-all ${
-                    hasVoiceAttached
-                      ? "bg-rose-500 text-white"
-                      : "bg-white text-gray-700 border border-rose-200"
-                  }`}
-                >
-                  {hasVoiceAttached ? "Attached (0:30) ✓" : "+ Add Voice"}
-                </button>
+              {/* Voice Note Recorder */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Voice Note (Optional)
+                </label>
+                <VoiceRecorder
+                  onAudioRecorded={(blob, duration) => {
+                    setAttachedAudioBlob(blob);
+                    setAttachedAudioDuration(duration);
+                  }}
+                  onDiscard={() => {
+                    setAttachedAudioBlob(null);
+                    setAttachedAudioDuration(null);
+                  }}
+                />
               </div>
 
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowNewPostModal(false)}
-                  className="min-h-[44px] px-5 py-2.5 rounded-xl text-sm text-gray-500"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="min-h-[44px] bg-rose-500 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-sm active:scale-95"
-                >
-                  Post Anonymously
-                </button>
+              {postError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs">
+                  {postError}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-2">
+                <span className="text-[11px] text-slate-400">
+                  🔒 Kept 100% anonymous & device-bound
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNewPostModal(false);
+                      setAttachedAudioBlob(null);
+                      setAttachedAudioDuration(null);
+                    }}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingPost || (!newPostContent.trim() && !attachedAudioBlob)}
+                    className="px-5 py-2.5 rounded-xl bg-rose-500 text-white text-xs font-semibold hover:bg-rose-600 disabled:opacity-50 transition-colors shadow-sm"
+                  >
+                    {isSubmittingPost ? "Publishing..." : "Publish Anonymously"}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* MODAL 2: 4-7-8 BREATHING */}
+      {/* Guided Breathing Modal */}
       {showBreathingModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn" role="dialog" aria-modal="true" aria-labelledby="breathing-title">
-          <div className="bg-white w-full max-w-sm rounded-3xl p-6 text-center space-y-5 border border-rose-100 shadow-2xl">
-            <div className="flex justify-between items-center pb-2 border-b border-rose-50">
-              <span id="breathing-title" className="text-sm font-bold text-rose-500 uppercase tracking-wider">Take a Moment</span>
-              <button
-                onClick={() => setShowBreathingModal(false)}
-                className="min-h-[44px] min-w-[44px] rounded-full bg-rose-50 text-gray-400 flex items-center justify-center text-sm font-bold"
-                aria-label="Close breathing exercise"
-              >
-                ✕
-              </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-8 text-center shadow-2xl border border-rose-100 space-y-6">
+            <h3 className="text-xl font-bold text-slate-900">Guided 4-7-8 Breathing</h3>
+
+            <div className="w-40 h-40 mx-auto rounded-full bg-rose-50 border-4 border-rose-300 flex flex-col items-center justify-center transition-all">
+              <span className="text-base font-bold text-rose-600 mb-1">{breathPhase}</span>
+              <span className="text-4xl font-extrabold text-slate-800">{breathCount}</span>
             </div>
 
-            <div className="py-3 space-y-3">
-              <div className="relative w-36 h-36 mx-auto flex items-center justify-center">
-                <div
-                  className={`absolute inset-0 rounded-full border-4 border-rose-300 transition-all duration-1000 ${
-                    breathPhase === "Breathe In"
-                      ? "scale-110 bg-rose-100"
-                      : breathPhase === "Hold"
-                      ? "scale-105 bg-amber-50"
-                      : "scale-90 bg-rose-50"
-                  }`}
-                  aria-hidden="true"
-                />
-                <div className="text-center relative z-10">
-                  <span className="text-4xl font-extrabold text-gray-900 block">{breathCount}s</span>
-                  <span className="text-sm font-bold text-rose-600">{breathPhase}</span>
-                </div>
-              </div>
-              <p className="text-sm text-gray-500 leading-relaxed">
-                Follow the circle. Breathe gently in and out.
-              </p>
-            </div>
+            <p className="text-xs text-slate-500 max-w-xs mx-auto">
+              Focus solely on the rhythm of your breath. Inhale deeply, hold gently, and release tension slowly.
+            </p>
 
             <button
               onClick={() => setShowBreathingModal(false)}
-              className="w-full min-h-[48px] bg-rose-500 text-white font-bold py-3 rounded-xl text-sm"
+              className="px-6 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800"
             >
-              Done
+              Finish Exercise
             </button>
           </div>
         </div>
       )}
 
-      {/* MODAL 3: CRISIS */}
-      {showCrisisModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn" role="dialog" aria-modal="true" aria-labelledby="crisis-title">
-          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-rose-200 space-y-4 text-center">
-            <span className="text-4xl" aria-hidden="true">❤️</span>
-            <h2 id="crisis-title" className="font-display font-bold text-xl text-gray-900">You Are Loved.</h2>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              If you are feeling overwhelmed, free compassionate help is available right now:
-            </p>
+      {/* Crisis Helplines Modal */}
+      <CrisisModal
+        isOpen={showCrisisModal}
+        onClose={() => setShowCrisisModal(false)}
+      />
 
-            <div className="space-y-3 pt-1">
-              <a
-                href="tel:+254722178177"
-                className="w-full bg-rose-600 text-white p-4 rounded-xl flex items-center justify-between font-bold text-sm shadow-sm min-h-[52px]"
-                aria-label="Call Befrienders Kenya Helpline at +254 722 178 177"
-              >
-                <span>Befrienders Kenya Helpline</span>
-                <span>+254 722 178 177</span>
-              </a>
+      {/* Coming Soon Modal */}
+      <ComingSoonModal
+        isOpen={comingSoonModal.isOpen}
+        onClose={() => setComingSoonModal({ ...comingSoonModal, isOpen: false })}
+        title={comingSoonModal.title}
+        description={comingSoonModal.description}
+        features={comingSoonModal.features}
+      />
 
-              <a
-                href="tel:1199"
-                className="w-full bg-gray-900 text-white p-4 rounded-xl flex items-center justify-between font-bold text-sm shadow-sm min-h-[52px]"
-                aria-label="Call Kenya Red Cross Hotline at 1199"
-              >
-                <span>Kenya Red Cross Hotline</span>
-                <span>1199</span>
-              </a>
-            </div>
+      {/* Report Modal */}
+      <ReportModal
+        isOpen={reportModal.isOpen}
+        onClose={() => setReportModal({ ...reportModal, isOpen: false })}
+        targetKind={reportModal.targetKind}
+        targetId={reportModal.targetId}
+        targetAuthorHandle={reportModal.targetAuthorHandle}
+      />
 
-            <button
-              onClick={() => setShowCrisisModal(false)}
-              className="text-sm text-gray-400 hover:underline pt-2 block mx-auto min-h-[44px]"
-            >
-              Close
-            </button>
-          </div>
-        </div>
+      {/* Edit Profile Modal */}
+      {currentProfile && (
+        <EditProfileModal
+          isOpen={showEditProfileModal}
+          onClose={() => setShowEditProfileModal(false)}
+          currentProfile={currentProfile}
+          onProfileUpdated={handleProfileUpdated}
+        />
       )}
-
-      {/* MODAL 4: M-PESA */}
-      {checkoutProduct && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn" role="dialog" aria-modal="true" aria-labelledby="mpesa-title">
-          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-rose-100 space-y-4">
-            <div className="flex justify-between items-center pb-3 border-b border-rose-50">
-              <h2 id="mpesa-title" className="font-bold text-lg text-gray-900">M-Pesa Express</h2>
-              <button
-                onClick={() => setCheckoutProduct(null)}
-                className="min-h-[44px] min-w-[44px] rounded-full bg-rose-50 text-gray-400 flex items-center justify-center text-sm font-bold"
-                aria-label="Close M-Pesa checkout"
-              >
-                ✕
-              </button>
-            </div>
-
-            {!paymentSuccessCode ? (
-              <form onSubmit={handleSimulateMpesa} className="space-y-4">
-                <div className="bg-rose-50/50 p-3 rounded-xl flex items-center gap-3">
-                  <span className="text-3xl">{checkoutProduct.icon}</span>
-                  <div>
-                    <h4 className="font-bold text-sm text-gray-900">{checkoutProduct.name}</h4>
-                    <span className="font-bold text-sm text-rose-600">
-                      KES {checkoutProduct.priceKes.toLocaleString()}
-                    </span>
-                  </div>
-                </div>
-
-                {checkoutProduct.sizes && (
-                  <div>
-                    <label htmlFor="size-select" className="text-sm font-bold text-gray-700 block mb-1.5">Select Size</label>
-                    <div className="flex gap-2" id="size-select" role="radiogroup" aria-label="Select size">
-                      {checkoutProduct.sizes.map((s) => (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => setSelectedSize(s)}
-                          aria-pressed={selectedSize === s}
-                          className={`min-h-[40px] min-w-[40px] px-3 py-2 rounded-lg text-sm font-bold border ${
-                            selectedSize === s
-                              ? "bg-rose-500 text-white border-rose-500"
-                              : "bg-white text-gray-700 border-rose-100"
-                          }`}
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <label htmlFor="customer-name" className="text-sm font-bold text-gray-700 block mb-1.5">Your Name</label>
-                  <input
-                    id="customer-name"
-                    type="text"
-                    placeholder="e.g. Faith"
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    required
-                    className="w-full border border-rose-200 rounded-xl px-4 py-3 text-sm text-gray-800 focus:outline-none focus:border-rose-400 min-h-[48px]"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="mpesa-phone" className="text-sm font-bold text-gray-700 block mb-1.5">M-Pesa Phone Number</label>
-                  <input
-                    id="mpesa-phone"
-                    type="tel"
-                    placeholder="e.g. 0712345678"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    required
-                    className="w-full border border-rose-200 rounded-xl px-4 py-3 text-sm text-gray-800 focus:outline-none focus:border-rose-400 font-mono min-h-[48px]"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={isProcessingMpesa}
-                  className="w-full min-h-[48px] bg-[#22c55e] hover:bg-[#16a34a] text-white py-3 rounded-xl font-bold text-sm shadow-sm active:scale-95"
-                >
-                  {isProcessingMpesa ? `Prompting PIN (${mpesaCountdown}s)...` : `Pay KES ${checkoutProduct.priceKes.toLocaleString()} via M-Pesa`}
-                </button>
-              </form>
-            ) : (
-              <div className="text-center space-y-4 py-2">
-                <span className="text-4xl" aria-hidden="true">✓</span>
-                <h4 className="font-bold text-lg text-gray-900">Payment Received!</h4>
-                <div className="bg-rose-50 p-4 rounded-xl space-y-1.5">
-                  <span className="text-xs text-rose-700 font-bold uppercase block">Your Care Pass</span>
-                  <div className="font-mono text-xl font-bold text-rose-600">{paymentSuccessCode}</div>
-                </div>
-                <button
-                  onClick={() => {
-                    setVoucherCodeInput(paymentSuccessCode);
-                    setIsVoucherUnlocked(true);
-                    setCheckoutProduct(null);
-                    setActiveView("psychologist");
-                  }}
-                  className="w-full min-h-[48px] bg-rose-500 text-white py-3 rounded-xl font-bold text-sm shadow-sm"
-                >
-                  Go to Counselor Chat
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
     </AppShell>
   );
 }
