@@ -5,7 +5,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { counselorId, voucherId, primaryConcern, intakeMood } = body;
+    const { counselorId, voucherId, primaryConcern, intakeMood, clientPhone } = body;
 
     if (!counselorId) {
       return NextResponse.json({ success: false, error: "Counselor ID is required." }, { status: 400 });
@@ -21,6 +21,7 @@ export async function POST(req: Request) {
       voucherId,
       primaryConcern,
       intakeMood,
+      clientPhone,
     });
 
     return NextResponse.json({

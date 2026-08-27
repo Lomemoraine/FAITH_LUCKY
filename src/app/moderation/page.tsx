@@ -11,6 +11,10 @@ import {
   Clock,
   RefreshCw,
   Mail,
+  Heart,
+  Send,
+  Stethoscope,
+  Lock,
 } from "lucide-react";
 import { VoicePlayer } from "@/app/components/voice-player";
 import { ModerationCase, ModerationActionType } from "@/lib/types";
@@ -26,6 +30,11 @@ export default function ModerationPortal() {
   const [actionReason, setActionReason] = useState<{ [caseId: string]: string }>({});
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  // Clinical Intervention State
+  const [clinicalReplyText, setClinicalReplyText] = useState<{ [caseId: string]: string }>({});
+  const [clinicalInviteChat, setClinicalInviteChat] = useState<{ [caseId: string]: boolean }>({});
+  const [showClinicalForm, setShowClinicalForm] = useState<{ [caseId: string]: boolean }>({});
 
   const loadQueue = useCallback(async () => {
     setIsLoadingQueue(true);
@@ -77,6 +86,42 @@ export default function ModerationPortal() {
       }
     } catch {
       setAuthError("Network error while requesting magic link.");
+    }
+  }
+
+  async function handleClinicalSubmit(caseId: string) {
+    const text = clinicalReplyText[caseId]?.trim();
+    if (!text) {
+      setActionMessage("Please enter a clinical response message before submitting.");
+      return;
+    }
+
+    setActionLoading(caseId);
+    setActionMessage(null);
+
+    try {
+      const res = await fetch("/api/moderation/intervene", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          caseId,
+          responseText: text,
+          invitePrivateChat: clinicalInviteChat[caseId] !== false,
+          counselorName: userEmail ? `Counselor (${userEmail.split("@")[0]})` : "Dr. Faith Mwangi (Clinical Psychologist)",
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setActionMessage(data.error || "Failed to post clinical response.");
+      } else {
+        setCases((prev) => prev.filter((c) => c.id !== caseId));
+        setActionMessage("💙 Clinical response and private consultation invite dispatched successfully!");
+      }
+    } catch {
+      setActionMessage("Network error submitting clinical response.");
+    } finally {
+      setActionLoading(null);
     }
   }
 
@@ -319,6 +364,104 @@ export default function ModerationPortal() {
                       </div>
                     )}
                   </div>
+
+                  {/* Option A: Clinical Support & De-escalation */}
+                  {c.targetKind === "post" && (
+                    <div className="mb-4 pb-4 border-b border-slate-100">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setShowClinicalForm((prev) => ({ ...prev, [c.id]: !prev[c.id] }))
+                        }
+                        className="text-xs font-bold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200 px-3.5 py-2 rounded-xl transition-all flex items-center gap-2 shadow-xs"
+                      >
+                        <Stethoscope className="w-4 h-4 text-teal-600" />
+                        {showClinicalForm[c.id]
+                          ? "Close Clinical Response Form"
+                          : "💙 Send Verified Clinical Response & Invite to Private Room"}
+                      </button>
+
+                      {showClinicalForm[c.id] && (
+                        <div className="mt-3 p-4 rounded-2xl bg-teal-50/60 border border-teal-200 space-y-3 animate-in fade-in duration-200">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-teal-900 flex items-center gap-1.5">
+                              <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500" />
+                              Psychologist Direct De-escalation
+                            </span>
+                            <span className="text-[11px] font-medium text-teal-700 bg-teal-100/70 px-2 py-0.5 rounded-md flex items-center gap-1">
+                              <Lock className="w-3 h-3" />
+                              Verified Clinical Badge
+                            </span>
+                          </div>
+
+                          {/* Quick Clinical Response Chips */}
+                          <div>
+                            <p className="text-[11px] font-semibold text-teal-800 mb-1.5">
+                              Quick Empathetic Starters:
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {[
+                                "You are heard and safe here. Please take a slow, gentle breath. I am listening without judgment.",
+                                "I'm stepping in from our clinical team. What you're carrying is heavy, but you don't have to face it alone.",
+                                "Please stay with us. Your life matters deeply. I am right here with you right now.",
+                              ].map((preset, idx) => (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  onClick={() =>
+                                    setClinicalReplyText((prev) => ({ ...prev, [c.id]: preset }))
+                                  }
+                                  className="text-[11px] text-left bg-white hover:bg-teal-100 border border-teal-200 text-teal-900 px-2.5 py-1 rounded-lg transition-colors shadow-2xs"
+                                >
+                                  💡 &ldquo;{preset.slice(0, 45)}...&rdquo;
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <textarea
+                            rows={3}
+                            placeholder="Type empathetic clinical response for this community member..."
+                            value={clinicalReplyText[c.id] || ""}
+                            onChange={(e) =>
+                              setClinicalReplyText({
+                                ...clinicalReplyText,
+                                [c.id]: e.target.value,
+                              })
+                            }
+                            className="w-full text-xs p-3 rounded-xl border border-teal-200 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 text-slate-800"
+                          />
+
+                          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                            <label className="flex items-center gap-2 text-xs font-medium text-teal-900 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={clinicalInviteChat[c.id] !== false}
+                                onChange={(e) =>
+                                  setClinicalInviteChat({
+                                    ...clinicalInviteChat,
+                                    [c.id]: e.target.checked,
+                                  })
+                                }
+                                className="rounded text-teal-600 focus:ring-teal-500"
+                              />
+                              <span>Open & link confidential 1-on-1 private crisis room</span>
+                            </label>
+
+                            <button
+                              type="button"
+                              onClick={() => handleClinicalSubmit(c.id)}
+                              disabled={actionLoading === c.id || !clinicalReplyText[c.id]?.trim()}
+                              className="px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              {actionLoading === c.id ? "Sending..." : "Post Clinical Reply & Resolve"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Actions & Reason */}
                   <div className="pt-2 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">

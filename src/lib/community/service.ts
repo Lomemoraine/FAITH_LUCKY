@@ -1,7 +1,8 @@
 import { createServerSupabaseClient } from "../supabase/server";
 import { createAdminSupabaseClient } from "../supabase/admin";
-import { evaluateSafetyPolicy } from "../safety/policy";
+import { evaluateSafetyPolicyAsync } from "../safety/policy";
 import { checkRateLimit } from "../ratelimit/limiter";
+import { sendCrisisEscalationAlert } from "../httpsms";
 import { PublicPost, PublicReply, ReportReason } from "../types";
 
 export interface CreatePostInput {
@@ -207,8 +208,8 @@ export async function createPostAction(input: CreatePostInput): Promise<CreatePo
     return { success: false, error: rateLimit.message };
   }
 
-  // Safety screening
-  const safetyCheck = evaluateSafetyPolicy(content);
+  // Safety screening (Hybrid fast-regex + AI semantic triage)
+  const safetyCheck = await evaluateSafetyPolicyAsync(content);
 
   // Insert post
   const { data: postData, error: postError } = await supabase
@@ -229,7 +230,7 @@ export async function createPostAction(input: CreatePostInput): Promise<CreatePo
     return { success: false, error: "Unable to publish your post. Please try again." };
   }
 
-  // If safety screening triggered, create a moderation case
+  // If safety screening triggered, create a moderation case & dispatch SMS alert
   if (safetyCheck.triggered && safetyCheck.severity) {
     const adminClient = createAdminSupabaseClient();
     await adminClient.from("moderation_cases").insert({
@@ -239,6 +240,14 @@ export async function createPostAction(input: CreatePostInput): Promise<CreatePo
       post_id: postData.id,
       status: "open",
     });
+
+    if (safetyCheck.severity === "priority" || safetyCheck.severity === "critical") {
+      sendCrisisEscalationAlert({
+        postId: postData.id,
+        roomName: input.roomId || "general",
+        severity: safetyCheck.severity,
+      }).catch((err) => console.error("[CrisisSMS] Failed to send alert:", err));
+    }
   }
 
   interface CreatedPostRow {
@@ -298,8 +307,8 @@ export async function createReplyAction(input: CreateReplyInput): Promise<Create
     return { success: false, error: rateLimit.message };
   }
 
-  // Safety check
-  const safetyCheck = evaluateSafetyPolicy(content);
+  // Safety check (Hybrid fast-regex + AI semantic triage)
+  const safetyCheck = await evaluateSafetyPolicyAsync(content);
 
   // Insert reply
   const { data: replyData, error: replyError } = await supabase

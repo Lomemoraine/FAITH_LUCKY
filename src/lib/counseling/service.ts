@@ -1,4 +1,5 @@
 import { createAdminSupabaseClient } from "../supabase/admin";
+import { sendAppointmentReminder } from "../httpsms";
 import { Counselor, CounselingSession, CounselingMessage } from "../types";
 
 export const DEFAULT_COUNSELORS: Counselor[] = [
@@ -75,10 +76,19 @@ export async function createOrGetCounselingSession(params: {
   voucherId?: string | null;
   primaryConcern?: string;
   intakeMood?: string;
+  clientPhone?: string;
 }): Promise<CounselingSession> {
   const counselor = DEFAULT_COUNSELORS.find((c) => c.id === params.counselorId) || DEFAULT_COUNSELORS[0];
   const sessionId = `sess-${Date.now()}`;
   const now = new Date().toISOString();
+
+  if (params.clientPhone) {
+    sendAppointmentReminder({
+      userPhone: params.clientPhone,
+      counselorName: counselor.name,
+      sessionTime: "Today (Live Confidential Session)",
+    }).catch((err) => console.error("[Counseling] Failed to send reminder SMS:", err));
+  }
 
   const initialMessages: CounselingMessage[] = [
     {

@@ -1,4 +1,5 @@
 import { KenyaCrisisResource, ModerationSeverity } from "../types";
+import { classifyContentWithAI } from "./ai-classifier";
 
 export const KENYA_CRISIS_RESOURCES: KenyaCrisisResource[] = [
   {
@@ -62,8 +63,12 @@ export interface SafetyCheckResult {
   triggered: boolean;
   severity: ModerationSeverity | null;
   matchedPattern?: string;
+  isAiFlagged?: boolean;
 }
 
+/**
+ * Tier 1: Synchronous rule-based pattern scanner (Instant 0ms latency)
+ */
 export function evaluateSafetyPolicy(content: string): SafetyCheckResult {
   const normalized = content.trim();
 
@@ -73,6 +78,7 @@ export function evaluateSafetyPolicy(content: string): SafetyCheckResult {
         triggered: true,
         severity: "critical",
         matchedPattern: pattern.source,
+        isAiFlagged: false,
       };
     }
   }
@@ -83,6 +89,7 @@ export function evaluateSafetyPolicy(content: string): SafetyCheckResult {
         triggered: true,
         severity: "priority",
         matchedPattern: pattern.source,
+        isAiFlagged: false,
       };
     }
   }
@@ -92,3 +99,34 @@ export function evaluateSafetyPolicy(content: string): SafetyCheckResult {
     severity: null,
   };
 }
+
+/**
+ * Tier 2: Hybrid Safety Engine combining fast Pattern Scanner + AI Semantic Intent Analysis
+ * Catches unlisted phrasing, Sheng metaphors, coded cries for help, and indirect suicidal ideation.
+ */
+export async function evaluateSafetyPolicyAsync(content: string): Promise<SafetyCheckResult> {
+  // Step 1: Run fast regex
+  const regexCheck = evaluateSafetyPolicy(content);
+  if (regexCheck.triggered && regexCheck.severity === "critical") {
+    // If already confirmed critical, return immediately
+    return regexCheck;
+  }
+
+  // Step 2: Run AI semantic classification (Sheng / Swahili / English)
+  try {
+    const aiResult = await classifyContentWithAI(content);
+    if (aiResult.triggered && aiResult.severity) {
+      return {
+        triggered: true,
+        severity: aiResult.severity,
+        matchedPattern: aiResult.reason || "AI Semantic Crisis Detection",
+        isAiFlagged: true,
+      };
+    }
+  } catch (err) {
+    console.warn("[SafetyPolicy] AI triage fallback to regex:", err);
+  }
+
+  return regexCheck;
+}
+
