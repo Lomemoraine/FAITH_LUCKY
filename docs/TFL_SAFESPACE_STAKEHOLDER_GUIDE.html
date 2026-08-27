@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TFL SafeSpace — Platform Overview & Non-Technical Testing Guide</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,400&display=swap');
+
+    @page {
+      size: A4;
+      margin: 15mm 12mm 15mm 12mm;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #1e293b;
+      background-color: #ffffff;
+      line-height: 1.55;
+      font-size: 13.5px;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .page-break {
+      page-break-before: always;
+      padding-top: 10px;
+    }
+
+    .avoid-break {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    /* Cover / Header Section */
+    .header-banner {
+      background: linear-gradient(135deg, #2b1e16 0%, #4a2818 50%, #8c4327 100%);
+      color: #ffffff;
+      padding: 32px 28px;
+      border-radius: 20px;
+      margin-bottom: 24px;
+      position: relative;
+      overflow: hidden;
+      border: 1px solid #7c3a1d;
+    }
+
+    .header-banner::after {
+      content: "🌸";
+      position: absolute;
+      right: 25px;
+      top: 20px;
+      font-size: 70px;
+      opacity: 0.18;
+    }
+
+    .tag-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .title {
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1.25;
+      margin-bottom: 8px;
+      color: #fff4ed;
+    }
+
+    .subtitle {
+      font-size: 13.5px;
+      color: #fbd5c0;
+      max-width: 90%;
+      font-weight: 400;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .meta-item span {
+      display: block;
+      font-size: 10.5px;
+      color: #fbd5c0;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .meta-item strong {
+      font-size: 12.5px;
+      color: #ffffff;
+    }
+
+    /* Section Headings */
+    h2.section-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 22px;
+      margin-bottom: 14px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid #f1e5dd;
+    }
+
+    h2.section-title .icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      background: #fdf2e9;
+      color: #c25e36;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    h3.sub-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #1e293b;
+      margin: 14px 0 8px 0;
+    }
+
+    p {
+      margin-bottom: 10px;
+      color: #334155;
+    }
+
+    /* Grid Layouts */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .feature-card {
+      background: #faf7f5;
+      border: 1px solid #ebdcd3;
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+    }
+
+    .feature-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .feature-card-header .badge-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      background: #eedbd0;
+      color: #8c3b17;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    .feature-card-header h4 {
+      font-size: 14px;
+      font-weight: 700;
+      color: #1e293b;
+    }
+
+    .feature-card p {
+      font-size: 12px;
+      color: #475569;
+      line-height: 1.45;
+      margin-bottom: 0;
+    }
+
+    /* Testing Steps Cards */
+    .test-box {
+      background: #ffffff;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 16px 18px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+    }
+
+    .test-box.highlight {
+      border-color: #cbd5e1;
+      background: #fdfdfd;
+    }
+
+    .test-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .test-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .test-number {
+      background: #c25e36;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 800;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .test-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .test-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: #e0f2fe;
+      color: #0369a1;
+      text-transform: uppercase;
+    }
+
+    .test-badge.green {
+      background: #dcfce7;
+      color: #15803d;
+    }
+
+    .test-badge.purple {
+      background: #f3e8ff;
+      color: #7e22ce;
+    }
+
+    .test-badge.rose {
+      background: #ffe4e6;
+      color: #be123c;
+    }
+
+    /* Steps List */
+    .steps-list {
+      list-style: none;
+      margin: 10px 0;
+    }
+
+    .steps-list li {
+      position: relative;
+      padding-left: 26px;
+      margin-bottom: 8px;
+      font-size: 12.5px;
+      color: #334155;
+    }
+
+    .steps-list li::before {
+      content: "➔";
+      position: absolute;
+      left: 6px;
+      color: #c25e36;
+      font-size: 11px;
+      font-weight: bold;
+    }
+
+    .expected-result {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-top: 10px;
+      font-size: 12px;
+      color: #166534;
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+    }
+
+    .expected-result strong {
+      color: #14532d;
+    }
+
+    .sample-input {
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-family: monospace;
+      font-size: 11.5px;
+      color: #0f172a;
+      margin: 6px 0;
+      display: block;
+    }
+
+    /* Tables */
+    table.summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 18px 0;
+      font-size: 12px;
+    }
+
+    table.summary-table th {
+      background: #f8fafc;
+      color: #334155;
+      font-weight: 700;
+      text-align: left;
+      padding: 10px 12px;
+      border: 1px solid #e2e8f0;
+      font-size: 11.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    table.summary-table td {
+      padding: 9px 12px;
+      border: 1px solid #e2e8f0;
+      color: #334155;
+      vertical-align: top;
+    }
+
+    table.summary-table tr:nth-child(even) {
+      background: #fcfdfe;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .pill-green { background: #dcfce7; color: #166534; }
+    .pill-blue { background: #e0f2fe; color: #075985; }
+    .pill-amber { background: #fef3c7; color: #92400e; }
+
+    /* Callout Note */
+    .callout {
+      background: #fffbeb;
+      border-left: 4px solid #f59e0b;
+      padding: 12px 16px;
+      border-radius: 0 12px 12px 0;
+      margin: 14px 0;
+      font-size: 12px;
+      color: #78350f;
+    }
+
+    .callout.info {
+      background: #eff6ff;
+      border-left-color: #3b82f6;
+      color: #1e40af;
+    }
+
+    .footer {
+      margin-top: 30px;
+      padding-top: 14px;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ================= PAGE 1 ================= -->
+  <div class="header-banner">
+    <div class="tag-badge">🛡️ Official Stakeholder & Reviewer Guide</div>
+    <h1 class="title">TFL SafeSpace Platform & Non-Technical Testing Guide</h1>
+    <p class="subtitle">
+      A comprehensive, easy-to-follow overview of what we built, how each feature protects Kenyan youth, and simple step-by-step instructions to test everything with zero technical background.
+    </p>
+
+    <div class="meta-grid">
+      <div class="meta-item">
+        <span>Platform</span>
+        <strong>TFL SafeSpace v1.0</strong>
+      </div>
+      <div class="meta-item">
+        <span>Organization</span>
+        <strong>Talk Freely Lifestyle</strong>
+      </div>
+      <div class="meta-item">
+        <span>Target Country</span>
+        <strong>Kenya 🇰🇪</strong>
+      </div>
+      <div class="meta-item">
+        <span>Date & Version</span>
+        <strong>August 2026 • MVP</strong>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title">
+    <span class="icon">🌸</span>
+    What is TFL SafeSpace? (The Big Picture)
+  </h2>
+  <p>
+    <strong>TFL SafeSpace</strong> is a confidential, culturally safe digital mental health platform built specifically for Kenyan youth and young adults. It eliminates the fear of stigma by allowing anyone to share their struggles 100% anonymously, listen to real audio stories, access licensed tele-psychologists, and receive immediate crisis safety net intervention when in acute distress.
+  </p>
+
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <div class="badge-icon">🕊️</div>
+        <h4>1. Anonymous Peer Rooms</h4>
+      </div>
+      <p>Youth post and reply without real names or emails. Generates soothing handles like <em>@GentleSeeker304</em> and avatars with full voice recording support.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <div class="badge-icon">🧠</div>
+        <h4>2. AI Semantic Crisis Triage</h4>
+      </div>
+      <p>Powered by OpenRouter & Gemini AI to understand subtle cries for help across <strong>English, Swahili, and Kenyan Sheng</strong> (e.g. farewell notes or giving away items).</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <div class="badge-icon">🛍️</div>
+        <h4>3. Care Store & Care Passes</h4>
+      </div>
+      <p>Supporters buy affirmative merchandise (Hoodies, Journals) via <strong>M-Pesa</strong>. Every purchase unlocks free Care Pass counseling vouchers for youth in need.</p>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <div class="badge-icon">📱</div>
+        <h4>4. Android SMS Gateway</h4>
+      </div>
+      <p>Uses a local Android phone with a Safaricom SIM to send instant crisis alerts to on-duty counselors and deliver Care Pass voucher codes directly to users' SMS inboxes.</p>
+    </div>
+  </div>
+
+  <div class="callout info">
+    <strong>💡 Quick Note for Testers:</strong> You do not need to write code or run commands. All testing can be done using your normal web browser and mobile phone by following the step-by-step guides on the next pages.
+  </div>
+
+  <!-- ================= PAGE 2 (PAGE BREAK) ================= -->
+  <div class="page-break"></div>
+
+  <h2 class="section-title">
+    <span class="icon">🧪</span>
+    How to Test Each Component (Step-by-Step)
+  </h2>
+  <p>
+    Follow these friendly, click-by-click instructions to test each part of the platform.
+  </p>
+
+  <!-- TEST 1 -->
+  <div class="test-box highlight avoid-break">
+    <div class="test-header">
+      <div class="test-header-left">
+        <div class="test-number">1</div>
+        <div>
+          <div class="test-title">Anonymous Community & Voice Stories</div>
+          <p style="font-size: 11.5px; color: #64748b; margin: 0;">Testing anonymous posting and audio playback</p>
+        </div>
+      </div>
+      <span class="test-badge">Peer Support</span>
+    </div>
+
+    <p><strong>Goal:</strong> Verify that someone can share what they are going through anonymously without revealing identity.</p>
+    <ul class="steps-list">
+      <li>Open the app at <strong>http://localhost:3002</strong> (or your live web link).</li>
+      <li>Click on any <strong>Listening Room</strong> (e.g., <em>Anxiety & Panic</em>, <em>Grief & Healing</em>, or <em>Burnout & Career</em>).</li>
+      <li>Notice your anonymous handle at the top (e.g., <strong>@QuietSoul795</strong>) and peaceful lotus/sun avatar.</li>
+      <li>Type a safe personal reflection in the share box:
+        <span class="sample-input">"Today was stressful at school, but taking slow deep breaths is helping me get through it."</span>
+      </li>
+      <li><em>(Optional)</em> Click the microphone icon 🎙️ to record a quick 5-second voice note.</li>
+      <li>Click <strong>"Share Gently"</strong>.</li>
+    </ul>
+
+    <div class="expected-result">
+      <span>✅</span>
+      <div>
+        <strong>What You Should See:</strong> Your post appears instantly in the room feed under your anonymous handle. If you recorded audio, an interactive soothing audio waveform player appears that anyone can play.
+      </div>
+    </div>
+  </div>
+
+  <!-- TEST 2 -->
+  <div class="test-box highlight avoid-break">
+    <div class="test-header">
+      <div class="test-header-left">
+        <div class="test-number">2</div>
+        <div>
+          <div class="test-title">AI Semantic Crisis Triage & Instant Help</div>
+          <p style="font-size: 11.5px; color: #64748b; margin: 0;">Testing Kenyan Swahili/Sheng crisis detection & phone SMS alert</p>
+        </div>
+      </div>
+      <span class="test-badge rose">Safety Net</span>
+    </div>
+
+    <p><strong>Goal:</strong> Verify that when a user expresses acute distress, the system flags it, offers emergency helplines, and alerts the on-duty counselor.</p>
+    <ul class="steps-list">
+      <li>In any Listening Room, type a message expressing acute hopelessness in Sheng, Swahili, or English:
+        <span class="sample-input">"Hii safari ya dunia nimefika mwisho nawaachia kila kitu sitakuwa hapa kesho"</span>
+        <em>(Or in English: "I gave away all my belongings to my sister, this is my final night")</em>
+      </li>
+      <li>Click <strong>"Share Gently"</strong>.</li>
+    </ul>
+
+    <div class="expected-result">
+      <span>✅</span>
+      <div>
+        <strong>What You Should See:</strong>
+        <ul style="margin: 4px 0 0 16px; font-size: 11.5px;">
+          <li>An emergency crisis modal immediately opens displaying Kenya 24/7 free hotlines (<strong>Befrienders Kenya 0722 178 177</strong>, <strong>Red Cross 1199</strong>, <strong>LVCT 1190</strong>).</li>
+          <li>The post is quietly flagged and sent to the on-duty psychologist's moderation desk.</li>
+          <li>The on-duty counselor's physical phone automatically receives an urgent SMS alert!</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= PAGE 3 (PAGE BREAK) ================= -->
+  <div class="page-break"></div>
+
+  <!-- TEST 3 -->
+  <div class="test-box highlight avoid-break">
+    <div class="test-header">
+      <div class="test-header-left">
+        <div class="test-number">3</div>
+        <div>
+          <div class="test-title">Care Store & M-Pesa Voucher Delivery</div>
+          <p style="font-size: 11.5px; color: #64748b; margin: 0;">Testing merchandise purchase & automated SMS Care Pass delivery</p>
+        </div>
+      </div>
+      <span class="test-badge green">Merch & Pass</span>
+    </div>
+
+    <p><strong>Goal:</strong> Test how buying physical merchandise funds counseling sessions and texts a Care Pass code to the buyer.</p>
+    <ul class="steps-list">
+      <li>Click on the <strong>Care Store</strong> tab in the navigation.</li>
+      <li>Browse products like the <em>TFL Signature Hope Hoodie</em> (KES 2,800) or <em>Guided Healing Journal</em> (KES 1,200).</li>
+      <li>Click <strong>"Support & Unlock Care Pass"</strong> on any item.</li>
+      <li>Enter your Kenyan phone number (e.g. <code>0712345678</code> or <code>0105505631</code>).</li>
+      <li>Click <strong>"Complete M-Pesa Checkout"</strong>.</li>
+    </ul>
+
+    <div class="expected-result">
+      <span>✅</span>
+      <div>
+        <strong>What You Should See:</strong>
+        A success receipt appears on screen with your generated Care Pass code (e.g. <code>CARE-HOPE-TFL</code>). Simultaneously, your Android gateway phone automatically sends a real SMS text message containing the voucher code directly to your phone number!
+      </div>
+    </div>
+  </div>
+
+  <!-- TEST 4 -->
+  <div class="test-box highlight avoid-break">
+    <div class="test-header">
+      <div class="test-header-left">
+        <div class="test-number">4</div>
+        <div>
+          <div class="test-title">1-on-1 Confidential Psychologist Consultation</div>
+          <p style="font-size: 11.5px; color: #64748b; margin: 0;">Testing voucher redemption and live private counseling chat</p>
+        </div>
+      </div>
+      <span class="test-badge purple">Tele-Therapy</span>
+    </div>
+
+    <p><strong>Goal:</strong> Test how an anonymous client redeems their Care Pass code to start a private session with a licensed counselor.</p>
+    <ul class="steps-list">
+      <li>Click on the <strong>1-on-1 Counseling</strong> tab.</li>
+      <li>Choose a verified licensed Kenyan psychologist (e.g., <strong>Dr. Faith Mwangi</strong>, <em>Licensed Clinical Psychologist</em>).</li>
+      <li>Enter your voucher code (e.g. <code>CARE-HOPE-TFL</code> or test code <code>CARE-DEMO-TFL</code>).</li>
+      <li>Click <strong>"Redeem & Start Confidential Session"</strong>.</li>
+    </ul>
+
+    <div class="expected-result">
+      <span>✅</span>
+      <div>
+        <strong>What You Should See:</strong>
+        A private, end-to-end encrypted session room opens. You receive a welcoming message from Dr. Faith Mwangi and can exchange confidential messages in real-time without revealing your real name.
+      </div>
+    </div>
+  </div>
+
+  <!-- TEST 5 -->
+  <div class="test-box highlight avoid-break">
+    <div class="test-header">
+      <div class="test-header-left">
+        <div class="test-number">5</div>
+        <div>
+          <div class="test-title">Clinical Moderation Desk (/moderation)</div>
+          <p style="font-size: 11.5px; color: #64748b; margin: 0;">Testing 1-click clinical de-escalation & private crisis room invite</p>
+        </div>
+      </div>
+      <span class="test-badge rose">Clinician Portal</span>
+    </div>
+
+    <p><strong>Goal:</strong> Verify how clinicians review flagged posts and intervene with verified badges and 1-on-1 room invites.</p>
+    <ul class="steps-list">
+      <li>In your browser, visit <strong>http://localhost:3002/moderation</strong>.</li>
+      <li>See all active flagged cases color-coded by severity (<strong>CRITICAL</strong> in rose, <strong>PRIORITY</strong> in amber).</li>
+      <li>Click <strong>"💙 Send Verified Clinical Response & Invite to Private Room"</strong>.</li>
+      <li>Pick an empathetic starter chip (e.g. <em>"You are heard and safe here. Please take a slow breath..."</em>).</li>
+      <li>Ensure <code>[x] Open & link confidential 1-on-1 private crisis room</code> is checked.</li>
+      <li>Click <strong>"Post Clinical Reply & Resolve"</strong>.</li>
+    </ul>
+
+    <div class="expected-result">
+      <span>✅</span>
+      <div>
+        <strong>What You Should See:</strong> The case is instantly resolved in the moderation queue, and a verified clinical badge response (🩺 <em>[TFL Verified Clinical Team — Dr. Faith Mwangi]</em>) is published with a private crisis room link for the user.
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= PAGE 4 (PAGE BREAK) ================= -->
+  <div class="page-break"></div>
+
+  <h2 class="section-title">
+    <span class="icon">📊</span>
+    Component Summary & Operational Checklist
+  </h2>
+  <p>
+    Quick reference of how each component is structured and how it operates in production.
+  </p>
+
+  <table class="summary-table">
+    <thead>
+      <tr>
+        <th>Component</th>
+        <th>What It Does</th>
+        <th>Technology Used</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Anonymous Community Feed</strong></td>
+        <td>Peer listening rooms, anonymous handle generation, audio story recording & playback.</td>
+        <td>Next.js 14, Tailwind CSS, Web Audio API</td>
+        <td><span class="pill pill-green">Verified</span></td>
+      </tr>
+      <tr>
+        <td><strong>AI Semantic Safety Engine</strong></td>
+        <td>Multi-lingual crisis triage in Sheng, Swahili, and English. Displays 24/7 Kenya crisis helplines.</td>
+        <td>OpenRouter (Gemini 3 Flash) + Fast Regex</td>
+        <td><span class="pill pill-green">Verified</span></td>
+      </tr>
+      <tr>
+        <td><strong>Care Store & M-Pesa</strong></td>
+        <td>Merchandise checkout via M-Pesa STK push. Automatically generates Care Pass voucher codes.</td>
+        <td>M-Pesa STK Push API, Supabase DB</td>
+        <td><span class="pill pill-green">Verified</span></td>
+      </tr>
+      <tr>
+        <td><strong>1-on-1 Counseling Desk</strong></td>
+        <td>Private booking, voucher redemption, and encrypted live chat with verified psychologists.</td>
+        <td>Supabase Realtime, Private Session Rooms</td>
+        <td><span class="pill pill-green">Verified</span></td>
+      </tr>
+      <tr>
+        <td><strong>Android httpSMS Gateway</strong></td>
+        <td>Dispatches real SMS crisis alerts, voucher delivery, and counseling appointment reminders.</td>
+        <td>Android Phone (SIM1) + Firebase FCM</td>
+        <td><span class="pill pill-green">Verified</span></td>
+      </tr>
+      <tr>
+        <td><strong>Clinical Moderation Desk</strong></td>
+        <td>Queue at <code>/moderation</code> for clinicians to review posts, hide triggers, and send verified replies.</td>
+        <td>Next.js Secure Role Portal</td>
+        <td><span class="pill pill-green">Verified</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 class="sub-title">📱 2-Way Inbound SMS Keywords (For Gateway Phone)</h3>
+  <p>Anyone in Kenya can also text these keywords directly to your gateway phone number:</p>
+
+  <table class="summary-table">
+    <thead>
+      <tr>
+        <th style="width: 25%;">Keyword</th>
+        <th>What the Phone Automatically Does</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>HELP</code> or <code>MSAADA</code> or <code>CRISIS</code></td>
+        <td>Automatically sends back 24/7 free Kenyan crisis helplines (Befrienders 0722 178 177, Red Cross 1199, LVCT 1190).</td>
+      </tr>
+      <tr>
+        <td><code>VOUCHER &lt;CODE&gt;</code></td>
+        <td>Queries the database and texts back if your Care Pass code is valid, active, or redeemed.</td>
+      </tr>
+      <tr>
+        <td><strong>Incoming M-Pesa SMS</strong></td>
+        <td>Automatically reconciles pending store orders, marks as paid, and texts the Care Pass code to the buyer.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <strong>🔒 Privacy Guarantee:</strong> TFL SafeSpace is built with zero-compromise privacy. IP addresses are hashed with HMAC SHA-256 and never stored in plaintext. Posts, voice recordings, and counseling sessions remain strictly confidential.
+  </div>
+
+  <div class="footer">
+    <span>TFL SafeSpace (Talk Freely Lifestyle) • Confidential Documentation</span>
+    <span>Generated August 2026 • Version 1.0</span>
+  </div>
+
+</body>
+</html>
