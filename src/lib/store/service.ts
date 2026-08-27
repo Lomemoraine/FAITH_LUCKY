@@ -1,4 +1,5 @@
 import { createAdminSupabaseClient } from "../supabase/admin";
+import { sendVoucherSMS } from "../httpsms";
 import { StoreProduct, StoreOrder, CareVoucher } from "../types";
 
 export const DEFAULT_PRODUCTS: StoreProduct[] = [
@@ -192,6 +193,13 @@ export async function processMpesaCheckout(params: {
   } catch (err) {
     console.warn("[Store] Database save warning (using memory order/voucher):", err);
   }
+
+  // Dispatch Care Pass voucher code SMS to customer
+  sendVoucherSMS({
+    customerPhone: cleanPhone,
+    voucherCode,
+    productTitle: product.name,
+  }).catch((err) => console.error("[Store] Failed to send voucher SMS:", err));
 
   return {
     success: true,

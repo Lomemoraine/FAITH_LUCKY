@@ -57,7 +57,7 @@ export type ReportReason =
 
 export type ModerationSeverity = "standard" | "priority" | "critical";
 export type ModerationStatus = "open" | "in_review" | "resolved" | "dismissed";
-export type ModerationActionType = "hide" | "restore" | "remove" | "suspend" | "unsuspend" | "dismiss";
+export type ModerationActionType = "hide" | "restore" | "remove" | "suspend" | "unsuspend" | "dismiss" | "clinical_reply";
 
 export interface ModerationCase {
   id: string;

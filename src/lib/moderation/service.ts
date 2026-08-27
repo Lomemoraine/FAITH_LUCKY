@@ -255,3 +255,117 @@ export async function performModerationAction(params: {
 
   return { success: true };
 }
+
+export async function postClinicalIntervention(params: {
+  caseId: string;
+  responseText: string;
+  invitePrivateChat?: boolean;
+  counselorName?: string;
+}): Promise<{ success: boolean; error?: string; sessionId?: string; replyId?: string }> {
+  const { isModerator, userId } = await verifyCurrentModerator();
+  if (!isModerator || !userId) {
+    return { success: false, error: "Unauthorized clinical moderator action." };
+  }
+
+  const admin = createAdminSupabaseClient();
+
+  // Get case details
+  const { data: caseRow } = await admin
+    .from("moderation_cases")
+    .select("id, target_kind, post_id, reply_id")
+    .eq("id", params.caseId)
+    .single();
+
+  if (!caseRow) {
+    return { success: false, error: "Case not found." };
+  }
+
+  const targetPostId = caseRow.target_kind === "post" ? caseRow.post_id : null;
+  if (!targetPostId) {
+    return { success: false, error: "Clinical intervention reply can only be posted to top-level posts." };
+  }
+
+  // Get post author
+  const { data: postData } = await admin
+    .from("posts")
+    .select("author_id, content")
+    .eq("id", targetPostId)
+    .single();
+
+  const authorId = postData?.author_id;
+  const counselorName = params.counselorName || "Dr. Faith Mwangi (Clinical Psychologist)";
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+
+  let inviteLinkText = "";
+  let createdSessionId: string | undefined;
+
+  // 1. If inviting to 1-on-1 private crisis room, create or link counseling session
+  if (params.invitePrivateChat && authorId) {
+    const { data: sessionData } = await admin
+      .from("counseling_sessions")
+      .insert({
+        client_id: authorId,
+        counselor_id: "counselor-1", // Default clinical lead
+        primary_concern: "Emergency De-escalation & Emotional Support",
+        intake_mood: "crisis",
+        status: "active",
+      })
+      .select()
+      .single();
+
+    if (sessionData) {
+      createdSessionId = sessionData.id;
+      inviteLinkText = `\n\n🔒 **Private 1-on-1 Crisis Session Active**: I have opened a confidential 1-on-1 consultation room for you. Click here to chat privately with me without anyone else seeing: ${siteUrl}/counseling`;
+      
+      // Post welcome message in counseling room
+      await admin.from("counseling_messages").insert({
+        session_id: sessionData.id,
+        sender_role: "counselor",
+        content: `Hello, I'm ${counselorName}. I read your message in SafeSpace and wanted to reach out directly to support you. You are in a safe, judgment-free space. Take a deep breath and share whatever is on your heart.`,
+      });
+    }
+  }
+
+  const formattedContent = `🩺 **[TFL Verified Clinical Team — ${counselorName}]**\n\n${params.responseText.trim()}${inviteLinkText}`;
+
+  // 2. Insert verified reply in public room
+  const { data: insertedReply, error: replyError } = await admin
+    .from("replies")
+    .insert({
+      post_id: targetPostId,
+      author_id: userId,
+      content: formattedContent,
+      status: "published",
+    })
+    .select("id")
+    .single();
+
+  if (replyError) {
+    console.error("[ClinicalIntervention] Reply error:", replyError.message);
+    return { success: false, error: "Failed to post clinical response." };
+  }
+
+  // 3. Log moderation action
+  await admin.from("moderation_actions").insert({
+    case_id: params.caseId,
+    moderator_id: userId,
+    action: "clinical_reply",
+    reason: `Clinical de-escalation response posted by ${counselorName}${params.invitePrivateChat ? " with private chat invite" : ""}`,
+  });
+
+  // 4. Mark moderation case as resolved
+  await admin
+    .from("moderation_cases")
+    .update({
+      status: "resolved",
+      resolved_at: new Date().toISOString(),
+    })
+    .eq("id", params.caseId);
+
+  return {
+    success: true,
+    sessionId: createdSessionId,
+    replyId: insertedReply?.id,
+  };
+}
+
