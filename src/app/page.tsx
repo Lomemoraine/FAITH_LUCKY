@@ -163,7 +163,15 @@ export default function SafeSpaceApp() {
     } catch (err) {
       console.error("Ensure session error:", err);
     }
-    return null;
+
+    // Resilient browser fallback profile
+    const fallbackProfile: PublicProfile = {
+      public_id: `usr_${Math.random().toString(36).substring(2, 8)}`,
+      anonymous_handle: `QuietSeeker${Math.floor(100 + Math.random() * 900)}`,
+      avatar_id: "lotus",
+    };
+    setCurrentProfile(fallbackProfile);
+    return fallbackProfile;
   }
 
   async function handleCreatePost(e: React.FormEvent) {

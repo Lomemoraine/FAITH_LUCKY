@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Play, Pause, Volume2 } from "lucide-react";
+import { Play, Pause, Volume2, AlertCircle, RefreshCw } from "lucide-react";
 
 interface VoicePlayerProps {
   audioUrl: string;
@@ -10,14 +10,22 @@ interface VoicePlayerProps {
 
 export function VoicePlayer({ audioUrl, duration }: VoicePlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [totalDuration, setTotalDuration] = useState<number>(duration || 0);
+  const [hasError, setHasError] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    const audio = new Audio(audioUrl);
+    setHasError(false);
+    setIsPlaying(false);
+    setCurrentTime(0);
+
+    const audio = new Audio();
     audioRef.current = audio;
+    audio.preload = "metadata";
+    audio.src = audioUrl;
 
     audio.onloadedmetadata = () => {
       if (audio.duration && isFinite(audio.duration)) {
@@ -25,8 +33,17 @@ export function VoicePlayer({ audioUrl, duration }: VoicePlayerProps) {
       }
     };
 
+    audio.ondurationchange = () => {
+      if (audio.duration && isFinite(audio.duration)) {
+        setTotalDuration(Math.round(audio.duration));
+      }
+    };
+
     audio.ontimeupdate = () => {
       setCurrentTime(Math.round(audio.currentTime));
+      if ((!totalDuration || totalDuration === 0) && audio.duration && isFinite(audio.duration)) {
+        setTotalDuration(Math.round(audio.duration));
+      }
     };
 
     audio.onended = () => {
@@ -34,21 +51,43 @@ export function VoicePlayer({ audioUrl, duration }: VoicePlayerProps) {
       setCurrentTime(0);
     };
 
+    audio.onerror = (e) => {
+      console.warn("[VoicePlayer] Audio load error:", e);
+      setHasError(true);
+      setIsPlaying(false);
+      setIsLoading(false);
+    };
+
+    audio.oncanplay = () => {
+      setIsLoading(false);
+    };
+
     return () => {
       audio.pause();
+      audio.src = "";
       audioRef.current = null;
     };
-  }, [audioUrl]);
+  }, [audioUrl, totalDuration]);
 
-  function togglePlay() {
+  async function togglePlay() {
     if (!audioRef.current) return;
 
     if (isPlaying) {
       audioRef.current.pause();
       setIsPlaying(false);
     } else {
-      audioRef.current.play().catch((err) => console.error("Audio play error", err));
-      setIsPlaying(true);
+      setHasError(false);
+      setIsLoading(true);
+      try {
+        await audioRef.current.play();
+        setIsPlaying(true);
+      } catch (err) {
+        console.error("[VoicePlayer] Playback error:", err);
+        setHasError(true);
+        setIsPlaying(false);
+      } finally {
+        setIsLoading(false);
+      }
     }
   }
 
@@ -61,8 +100,9 @@ export function VoicePlayer({ audioUrl, duration }: VoicePlayerProps) {
   }
 
   function formatTime(seconds: number) {
+    if (!seconds || isNaN(seconds) || seconds < 0) return "0:00";
     const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
+    const secs = Math.floor(seconds % 60);
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
   }
 
@@ -71,10 +111,17 @@ export function VoicePlayer({ audioUrl, duration }: VoicePlayerProps) {
       <button
         type="button"
         onClick={togglePlay}
-        className="w-10 h-10 rounded-xl bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center transition-all shadow-sm shrink-0"
+        disabled={isLoading}
+        className="w-10 h-10 rounded-xl bg-rose-500 hover:bg-rose-600 disabled:opacity-60 text-white flex items-center justify-center transition-all shadow-sm shrink-0"
         aria-label={isPlaying ? "Pause voice note" : "Play voice note"}
       >
-        {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+        {isLoading ? (
+          <RefreshCw className="w-4 h-4 animate-spin" />
+        ) : isPlaying ? (
+          <Pause className="w-4 h-4" />
+        ) : (
+          <Play className="w-4 h-4 ml-0.5" />
+        )}
       </button>
 
       <div className="flex-1 min-w-0 space-y-1">
@@ -99,6 +146,13 @@ export function VoicePlayer({ audioUrl, duration }: VoicePlayerProps) {
             className="w-full h-1.5 bg-rose-200 rounded-lg appearance-none cursor-pointer accent-rose-600"
           />
         </div>
+
+        {hasError && (
+          <div className="flex items-center gap-1 text-[10px] text-rose-600 font-medium">
+            <AlertCircle className="w-3 h-3" />
+            <span>Audio stream failed to load.</span>
+          </div>
+        )}
       </div>
 
       {/* Animated Sound Bars */}
@@ -107,7 +161,7 @@ export function VoicePlayer({ audioUrl, duration }: VoicePlayerProps) {
           <div
             key={i}
             style={{
-              height: isPlaying ? `${Math.max(20, (h * (currentTime + i)) % 100)}%` : `${h * 0.4}%`,
+              height: isPlaying ? `${Math.max(25, (h * (currentTime + i + 1)) % 100)}%` : `${h * 0.4}%`,
             }}
             className={`w-1 rounded-full transition-all duration-200 ${
               isPlaying ? "bg-rose-500" : "bg-rose-300"
