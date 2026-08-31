@@ -67,7 +67,7 @@ export function VoicePlayer({ audioUrl, duration }: VoicePlayerProps) {
       audio.src = "";
       audioRef.current = null;
     };
-  }, [audioUrl, totalDuration]);
+  }, [audioUrl]);
 
   async function togglePlay() {
     if (!audioRef.current) return;

@@ -1,17 +1,12 @@
 import { NextResponse } from "next/server";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
+import { getCurrentSessionProfile } from "@/lib/community/service";
 
 export async function POST(req: Request) {
   try {
-    const supabase = createServerSupabaseClient();
-    const { data: userData } = await supabase.auth.getUser();
+    const profile = await getCurrentSessionProfile();
+    const userId = profile.id;
 
-    if (!userData?.user) {
-      return NextResponse.json({ success: false, error: "Anonymous session required to upload audio." }, { status: 401 });
-    }
-
-    const userId = userData.user.id;
     const formData = await req.formData();
     const file = formData.get("audio") as File | null;
     const duration = parseInt(String(formData.get("duration") || "0"), 10);
@@ -64,7 +59,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // 2. Resilient Fallback: Encode as Data URL so voice notes are ALWAYS playable across all clients
+    // 2. Resilient Base64 Data URL fallback so voice notes are ALWAYS playable across all devices & browsers
     const base64Audio = buffer.toString("base64");
     const dataUrl = `data:${mimeType};base64,${base64Audio}`;
 

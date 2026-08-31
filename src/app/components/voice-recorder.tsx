@@ -24,6 +24,7 @@ export function VoiceRecorder({
   const audioChunksRef = useRef<Blob[]>([]);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const recordingTimeRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -39,6 +40,7 @@ export function VoiceRecorder({
     setErrorMessage(null);
     audioChunksRef.current = [];
     setRecordingTime(0);
+    recordingTimeRef.current = 0;
 
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -69,20 +71,18 @@ export function VoiceRecorder({
         const blob = new Blob(audioChunksRef.current, { type: blobType });
         const url = URL.createObjectURL(blob);
         setAudioUrl(url);
-        onAudioRecorded(blob, recordingTime);
+        onAudioRecorded(blob, recordingTimeRef.current || 1);
       };
 
       mediaRecorder.start(250);
       setIsRecording(true);
 
       timerIntervalRef.current = setInterval(() => {
-        setRecordingTime((prev) => {
-          if (prev >= maxDurationSeconds - 1) {
-            stopRecording();
-            return maxDurationSeconds;
-          }
-          return prev + 1;
-        });
+        recordingTimeRef.current += 1;
+        setRecordingTime(recordingTimeRef.current);
+        if (recordingTimeRef.current >= maxDurationSeconds) {
+          stopRecording();
+        }
       }, 1000);
     } catch {
       setErrorMessage("Could not access microphone. Please allow microphone permissions.");
