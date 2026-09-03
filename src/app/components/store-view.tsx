@@ -177,6 +177,17 @@ export function StoreView({ onGoToCounselor }: StoreViewProps) {
                   }`}
                 >
                   <div className="space-y-4">
+                    {/* Product Photo if present */}
+                    {product.imageUrl ? (
+                      <div className="w-full h-44 rounded-2xl overflow-hidden border border-rose-100 bg-slate-50 shadow-xs">
+                        <img
+                          src={product.imageUrl}
+                          alt={product.name}
+                          className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                        />
+                      </div>
+                    ) : null}
+
                     {/* Item Header */}
                     <div className="flex items-start justify-between">
                       <span className="text-3xl p-2.5 rounded-2xl bg-rose-50 inline-block">

@@ -139,7 +139,9 @@ export interface Counselor {
   id: string;
   name: string;
   title: string;
-  licenseNumber: string;
+  licenseNumber?: string;
+  isLicensed?: boolean;
+  showLicenseNumber?: boolean;
   specialty: string;
   bio: string;
   avatarInitials: string;

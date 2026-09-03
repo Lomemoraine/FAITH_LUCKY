@@ -4,8 +4,8 @@ import type { NextRequest } from "next/server";
 export function middleware(request: NextRequest) {
   const stagingPassword = process.env.STAGING_ACCESS_PASSWORD;
 
-  // If no staging password configured, proceed
-  if (!stagingPassword) {
+  // In local development, allow direct access without staging password lock
+  if (process.env.NODE_ENV !== "production" || !stagingPassword) {
     return NextResponse.next();
   }
 

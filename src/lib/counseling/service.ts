@@ -8,6 +8,8 @@ export const DEFAULT_COUNSELORS: Counselor[] = [
     name: "Dr. Faith Mwangi",
     title: "Licensed Clinical Psychologist",
     licenseNumber: "KPsyA-4821",
+    isLicensed: true,
+    showLicenseNumber: false,
     specialty: "Anxiety, Panic & Trauma Support",
     bio: "Specialized in cognitive behavioral techniques, panic relief, and trauma-informed compassionate listening for youth and young adults.",
     avatarInitials: "FM",
@@ -20,6 +22,8 @@ export const DEFAULT_COUNSELORS: Counselor[] = [
     name: "David Otieno, MA",
     title: "Certified Counseling Psychologist",
     licenseNumber: "KPsyA-3109",
+    isLicensed: true,
+    showLicenseNumber: false,
     specialty: "Grief, Career Burnout & Stress",
     bio: "Dedicated to helping individuals navigate acute life transitions, workplace overwhelm, personal loss, and emotional grounding.",
     avatarInitials: "DO",
@@ -32,6 +36,8 @@ export const DEFAULT_COUNSELORS: Counselor[] = [
     name: "Sarah Chebet, MSc",
     title: "Family & Wellness Specialist",
     licenseNumber: "KPsyA-5520",
+    isLicensed: true,
+    showLicenseNumber: false,
     specialty: "Relationships, Depression & Self-Esteem",
     bio: "Warm, non-judgmental guidance focused on emotional resilience, healthy relationship boundaries, and self-worth restoration.",
     avatarInitials: "SC",
@@ -40,6 +46,8 @@ export const DEFAULT_COUNSELORS: Counselor[] = [
     sessionsCompleted: 210,
   },
 ];
+
+let inMemoryCounselors: Counselor[] = [...DEFAULT_COUNSELORS];
 
 export async function getVerifiedCounselors(): Promise<Counselor[]> {
   try {
@@ -50,23 +58,137 @@ export async function getVerifiedCounselors(): Promise<Counselor[]> {
       .order("rating", { ascending: false });
 
     if (error || !data || data.length === 0) {
-      return DEFAULT_COUNSELORS;
+      return inMemoryCounselors;
     }
 
     return data.map((c) => ({
       id: c.id,
       name: c.name,
       title: c.title,
-      licenseNumber: c.license_number,
+      licenseNumber: c.license_number || "",
+      isLicensed: c.is_licensed !== false,
+      showLicenseNumber: Boolean(c.show_license_number),
       specialty: c.specialty,
       bio: c.bio,
       avatarInitials: c.avatar_initials,
       isOnline: c.is_online,
-      rating: Number(c.rating),
-      sessionsCompleted: c.sessions_completed,
+      rating: Number(c.rating) || 5.0,
+      sessionsCompleted: c.sessions_completed || 0,
     }));
   } catch {
-    return DEFAULT_COUNSELORS;
+    return inMemoryCounselors;
+  }
+}
+
+export async function createCounselor(input: {
+  name: string;
+  title: string;
+  specialty: string;
+  bio: string;
+  licenseNumber?: string;
+  isLicensed?: boolean;
+  showLicenseNumber?: boolean;
+  avatarInitials?: string;
+  isOnline?: boolean;
+  rating?: number;
+  sessionsCompleted?: number;
+}): Promise<Counselor> {
+  const initials =
+    input.avatarInitials?.trim() ||
+    input.name
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0].toUpperCase())
+      .join("") ||
+    "CN";
+
+  const id = `counselor-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 5)}`;
+
+  const newCounselor: Counselor = {
+    id,
+    name: input.name.trim(),
+    title: input.title.trim(),
+    licenseNumber: input.licenseNumber?.trim() || "",
+    isLicensed: input.isLicensed !== false,
+    showLicenseNumber: Boolean(input.showLicenseNumber),
+    specialty: input.specialty.trim(),
+    bio: input.bio.trim(),
+    avatarInitials: initials,
+    isOnline: input.isOnline !== false,
+    rating: Number(input.rating) || 5.0,
+    sessionsCompleted: Number(input.sessionsCompleted) || 0,
+  };
+
+  inMemoryCounselors = [newCounselor, ...inMemoryCounselors];
+
+  try {
+    const admin = createAdminSupabaseClient();
+    await admin.from("counselors").insert({
+      id: newCounselor.id,
+      name: newCounselor.name,
+      title: newCounselor.title,
+      license_number: newCounselor.licenseNumber,
+      specialty: newCounselor.specialty,
+      bio: newCounselor.bio,
+      avatar_initials: newCounselor.avatarInitials,
+      is_online: newCounselor.isOnline,
+      rating: newCounselor.rating,
+      sessions_completed: newCounselor.sessionsCompleted,
+    });
+  } catch (err) {
+    console.warn("[Counselor] Database save warning (stored in-memory):", err);
+  }
+
+  return newCounselor;
+}
+
+export async function updateCounselor(
+  id: string,
+  updates: Partial<Counselor>
+): Promise<Counselor | null> {
+  const existingIdx = inMemoryCounselors.findIndex((c) => c.id === id);
+  if (existingIdx !== -1) {
+    inMemoryCounselors[existingIdx] = {
+      ...inMemoryCounselors[existingIdx],
+      ...updates,
+    };
+  }
+
+  try {
+    const admin = createAdminSupabaseClient();
+    const dbPayload: Record<string, unknown> = {};
+    if (updates.name !== undefined) dbPayload.name = updates.name;
+    if (updates.title !== undefined) dbPayload.title = updates.title;
+    if (updates.licenseNumber !== undefined) dbPayload.license_number = updates.licenseNumber;
+    if (updates.specialty !== undefined) dbPayload.specialty = updates.specialty;
+    if (updates.bio !== undefined) dbPayload.bio = updates.bio;
+    if (updates.avatarInitials !== undefined) dbPayload.avatar_initials = updates.avatarInitials;
+    if (updates.isOnline !== undefined) dbPayload.is_online = updates.isOnline;
+    if (updates.rating !== undefined) dbPayload.rating = updates.rating;
+    if (updates.sessionsCompleted !== undefined) dbPayload.sessions_completed = updates.sessionsCompleted;
+
+    if (Object.keys(dbPayload).length > 0) {
+      await admin.from("counselors").update(dbPayload).eq("id", id);
+    }
+  } catch (err) {
+    console.warn("[Counselor] Database update warning:", err);
+  }
+
+  const all = await getVerifiedCounselors();
+  return all.find((c) => c.id === id) || (existingIdx !== -1 ? inMemoryCounselors[existingIdx] : null);
+}
+
+export async function deleteCounselor(id: string): Promise<boolean> {
+  inMemoryCounselors = inMemoryCounselors.filter((c) => c.id !== id);
+
+  try {
+    const admin = createAdminSupabaseClient();
+    await admin.from("counselors").delete().eq("id", id);
+    return true;
+  } catch (err) {
+    console.warn("[Counselor] Database delete warning:", err);
+    return true;
   }
 }
 
@@ -78,7 +200,12 @@ export async function createOrGetCounselingSession(params: {
   intakeMood?: string;
   clientPhone?: string;
 }): Promise<CounselingSession> {
-  const counselor = DEFAULT_COUNSELORS.find((c) => c.id === params.counselorId) || DEFAULT_COUNSELORS[0];
+  const allCounselors = await getVerifiedCounselors();
+  const counselor =
+    allCounselors.find((c) => c.id === params.counselorId) ||
+    DEFAULT_COUNSELORS.find((c) => c.id === params.counselorId) ||
+    DEFAULT_COUNSELORS[0];
+
   const sessionId = `sess-${Date.now()}`;
   const now = new Date().toISOString();
 
