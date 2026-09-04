@@ -125,6 +125,13 @@ export function CounselorView({
   }
 
   async function handleStartSession(counselor: Counselor) {
+    // Guard: never attempt to start without a redeemed Care Pass in hand.
+    if (!activeVoucher) {
+      setPendingCounselor(counselor);
+      setShowUnlockModal(true);
+      return;
+    }
+
     setIsStartingSession(true);
     try {
       const res = await fetch("/api/counseling/sessions", {
@@ -133,6 +140,7 @@ export function CounselorView({
         body: JSON.stringify({
           counselorId: counselor.id,
           voucherId: activeVoucher?.id || null,
+          voucherCode: activeVoucher?.code || null,
           primaryConcern: "General emotional guidance and support",
           intakeMood: "neutral",
         }),
@@ -143,9 +151,19 @@ export function CounselorView({
         setActiveSession(data.session);
         setSelectedCounselor(counselor);
         setShowUnlockModal(false);
+      } else {
+        // Server rejected access (e.g. voucher invalid/expired) — surface the
+        // paywall again instead of failing silently.
+        setActiveVoucher(null);
+        setVoucherError(
+          data.error || "Your Care Pass could not be verified. Please purchase or re-enter a valid code."
+        );
+        setPendingCounselor(counselor);
+        setShowUnlockModal(true);
       }
     } catch (err) {
       console.error("Start session error:", err);
+      setVoucherError("Network error while connecting to a counselor. Please try again.");
     } finally {
       setIsStartingSession(false);
     }

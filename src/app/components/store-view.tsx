@@ -170,76 +170,80 @@ export function StoreView({ onGoToCounselor }: StoreViewProps) {
               return (
                 <div
                   key={product.id}
-                  className={`flex flex-col justify-between rounded-3xl bg-white p-6 border transition-all duration-200 hover:shadow-lg ${
+                  className={`group flex flex-col justify-between overflow-hidden rounded-3xl bg-white border transition-all duration-200 hover:shadow-xl hover:-translate-y-0.5 ${
                     isDirectService
-                      ? "border-emerald-200 ring-2 ring-emerald-400/20 bg-gradient-to-b from-emerald-50/30 to-white"
+                      ? "border-emerald-200 ring-2 ring-emerald-400/20"
                       : "border-rose-100 hover:border-rose-300"
                   }`}
                 >
-                  <div className="space-y-4">
-                    {/* Product Photo if present */}
+                  {/* Large ecommerce-style product image hero */}
+                  <div className="relative w-full aspect-[4/3] overflow-hidden bg-slate-100">
                     {product.imageUrl ? (
-                      <div className="w-full h-44 rounded-2xl overflow-hidden border border-rose-100 bg-slate-50 shadow-xs">
-                        <img
-                          src={product.imageUrl}
-                          alt={product.name}
-                          className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                        />
-                      </div>
-                    ) : null}
-
-                    {/* Item Header */}
-                    <div className="flex items-start justify-between">
-                      <span className="text-3xl p-2.5 rounded-2xl bg-rose-50 inline-block">
-                        {categoryIcons[product.category] || "🎁"}
-                      </span>
-                      <span
-                        className={`text-xs px-3 py-1 rounded-full font-bold ${
+                      <img
+                        src={product.imageUrl}
+                        alt={product.name}
+                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      />
+                    ) : (
+                      /* Attractive fallback so cards still look like a storefront */
+                      <div
+                        className={`flex h-full w-full items-center justify-center ${
                           isDirectService
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-rose-100 text-rose-800"
+                            ? "bg-gradient-to-br from-emerald-100 via-emerald-50 to-teal-100"
+                            : "bg-gradient-to-br from-rose-100 via-pink-50 to-amber-100"
                         }`}
                       >
-                        {isDirectService ? "⚡ Direct Session" : "Merchandise"}
-                      </span>
-                    </div>
+                        <span className="text-6xl drop-shadow-sm transition-transform duration-500 group-hover:scale-110">
+                          {categoryIcons[product.category] || "🎁"}
+                        </span>
+                      </div>
+                    )}
 
-                    <div>
-                      <h3 className="text-lg font-bold text-slate-900 leading-snug">
-                        {product.name}
-                      </h3>
-                      <p className="mt-1 text-xs text-slate-600 leading-relaxed line-clamp-3">
-                        {product.description}
-                      </p>
-                    </div>
+                    {/* Category badge overlaid on image */}
+                    <span
+                      className={`absolute left-3 top-3 rounded-full px-3 py-1 text-[11px] font-bold shadow-sm backdrop-blur-sm ${
+                        isDirectService
+                          ? "bg-emerald-600/90 text-white"
+                          : "bg-white/90 text-rose-700"
+                      }`}
+                    >
+                      {isDirectService ? "⚡ Direct Session" : "Merchandise"}
+                    </span>
 
-                    {/* Care Pass Perk Badge */}
-                    <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50/80 border border-amber-200/70 text-[11px] font-semibold text-amber-900">
-                      <Heart className="w-4 h-4 text-rose-500 shrink-0" />
-                      <span>{product.carePerk}</span>
-                    </div>
+                    {/* Price tag overlaid on image (ecommerce style) */}
+                    <span className="absolute bottom-3 right-3 rounded-full bg-white/95 px-3 py-1.5 text-sm font-extrabold text-slate-900 shadow-md backdrop-blur-sm">
+                      KES {product.priceKes.toLocaleString()}
+                    </span>
                   </div>
 
-                  {/* Pricing & CTA */}
-                  <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">
-                        Price (KES)
-                      </span>
-                      <span className="text-xl font-extrabold text-slate-900">
-                        KES {product.priceKes.toLocaleString()}
-                      </span>
+                  <div className="flex flex-1 flex-col justify-between p-5">
+                    <div className="space-y-3">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-900 leading-snug">
+                          {product.name}
+                        </h3>
+                        <p className="mt-1 text-xs text-slate-600 leading-relaxed line-clamp-2">
+                          {product.description}
+                        </p>
+                      </div>
+
+                      {/* Care Pass Perk Badge */}
+                      <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50/80 border border-amber-200/70 text-[11px] font-semibold text-amber-900">
+                        <Heart className="w-4 h-4 text-rose-500 shrink-0" />
+                        <span>{product.carePerk}</span>
+                      </div>
                     </div>
 
+                    {/* CTA */}
                     <button
                       onClick={() => setSelectedProduct(product)}
-                      className={`px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all shadow-sm flex items-center gap-1.5 ${
+                      className={`mt-5 w-full py-3 rounded-xl text-xs font-bold text-white transition-all shadow-sm flex items-center justify-center gap-1.5 ${
                         isDirectService
                           ? "bg-emerald-600 hover:bg-emerald-700"
                           : "bg-rose-500 hover:bg-rose-600"
                       }`}
                     >
-                      <span>Buy via M-Pesa</span>
+                      <span>{isDirectService ? "Book Session via M-Pesa" : "Buy via M-Pesa"}</span>
                       <Zap className="w-3.5 h-3.5 fill-white" />
                     </button>
                   </div>
