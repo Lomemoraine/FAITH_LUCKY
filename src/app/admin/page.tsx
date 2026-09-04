@@ -11,7 +11,6 @@ import {
   Clock,
   RefreshCw,
   Mail,
-  Heart,
   Send,
   Stethoscope,
   Lock,
@@ -20,14 +19,11 @@ import {
   UserCheck,
   Edit2,
   KeyRound,
-  DollarSign,
-  Tag,
   Star,
   Check,
   X,
   Sparkles,
   Upload,
-  Image as ImageIcon,
 } from "lucide-react";
 import { VoicePlayer } from "@/app/components/voice-player";
 import {
