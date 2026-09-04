@@ -175,14 +175,14 @@ export function SupportHome({ onNavigate, onShare, onBreathe }: SupportHomeProps
         <div>
           <p className="font-display text-xl font-bold">A counselor is available now</p>
           <p className="mt-2 max-w-xl text-sm leading-6 text-[#d9cfd3]">
-            Your first private conversation is free and confidential.
+            Private, confidential 1-on-1 sessions unlock with a Care Pass from the store.
           </p>
         </div>
         <button
           onClick={() => onNavigate("psychologist")}
           className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-5 text-sm font-bold text-[#21191d] transition-colors hover:bg-rose-50"
         >
-          Start private chat
+          Meet the counselors
           <ArrowRight className="h-4 w-4" />
         </button>
       </section>

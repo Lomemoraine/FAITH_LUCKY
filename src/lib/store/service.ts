@@ -2,6 +2,9 @@ import { createAdminSupabaseClient } from "../supabase/admin";
 import { sendVoucherSMS } from "../httpsms";
 import { StoreProduct, StoreOrder, CareVoucher } from "../types";
 
+// The only non-purchased code accepted anywhere. Advertised in the UI for demos.
+export const DEMO_VOUCHER_CODE = "CARE-DEMO-TFL";
+
 export const DEFAULT_PRODUCTS: StoreProduct[] = [
   {
     id: "hoodie-rose",
@@ -324,57 +327,62 @@ export async function validateAndRedeemVoucher(
 }> {
   const cleanCode = code.trim().toUpperCase();
 
-  // Test / demo master voucher support
-  if (cleanCode === "CARE-DEMO-TFL" || cleanCode.startsWith("CARE-")) {
-    try {
-      const admin = createAdminSupabaseClient();
-      const { data: dbVoucher } = await admin
-        .from("vouchers")
-        .select("*")
-        .eq("code", cleanCode)
-        .single();
+  if (!cleanCode) {
+    return { success: false, error: "Please enter a Care Pass code (e.g. CARE-XXXX-TFL)." };
+  }
 
-      if (dbVoucher) {
-        if (dbVoucher.status === "redeemed") {
-          return { success: false, error: "This Care Pass voucher has already been redeemed." };
-        }
+  // 1. Real, purchased vouchers in the database are the source of truth.
+  try {
+    const admin = createAdminSupabaseClient();
+    const { data: dbVoucher } = await admin
+      .from("vouchers")
+      .select("*")
+      .eq("code", cleanCode)
+      .single();
 
-        // Mark redeemed if user provided
-        if (userProfileId) {
-          await admin
-            .from("vouchers")
-            .update({
-              status: "redeemed",
-              redeemed_by: userProfileId,
-              redeemed_at: new Date().toISOString(),
-            })
-            .eq("id", dbVoucher.id);
-        }
-
-        return {
-          success: true,
-          voucher: {
-            id: dbVoucher.id,
-            code: dbVoucher.code,
-            therapySessions: dbVoucher.therapy_sessions || 1,
-            perkDescription: dbVoucher.perk_description || "1-on-1 Counselor Consultation Session",
-            status: "active",
-            createdAt: dbVoucher.created_at,
-          },
-        };
+    if (dbVoucher) {
+      if (dbVoucher.status === "redeemed") {
+        return { success: false, error: "This Care Pass voucher has already been redeemed." };
       }
-    } catch {
-      // Fallback
-    }
 
-    // Fallback valid voucher for demo / testing
+      // Mark redeemed if user provided
+      if (userProfileId) {
+        await admin
+          .from("vouchers")
+          .update({
+            status: "redeemed",
+            redeemed_by: userProfileId,
+            redeemed_at: new Date().toISOString(),
+          })
+          .eq("id", dbVoucher.id);
+      }
+
+      return {
+        success: true,
+        voucher: {
+          id: dbVoucher.id,
+          code: dbVoucher.code,
+          therapySessions: dbVoucher.therapy_sessions || 1,
+          perkDescription: dbVoucher.perk_description || "1-on-1 Counselor Consultation Session",
+          status: "active",
+          createdAt: dbVoucher.created_at,
+        },
+      };
+    }
+  } catch {
+    // DB unavailable — fall through to the explicitly allowed demo code only.
+  }
+
+  // 2. The single, publicly advertised demo code (shown in the UI) is allowed
+  //    so the flow can be tested. NO other made-up "CARE-..." code is accepted.
+  if (cleanCode === DEMO_VOUCHER_CODE) {
     return {
       success: true,
       voucher: {
-        id: `vouch-${Date.now()}`,
+        id: `vouch-demo-${Date.now()}`,
         code: cleanCode,
         therapySessions: 1,
-        perkDescription: "1-on-1 Counselor Consultation Session",
+        perkDescription: "1-on-1 Counselor Consultation Session (Demo)",
         status: "active",
         createdAt: new Date().toISOString(),
       },
@@ -383,6 +391,39 @@ export async function validateAndRedeemVoucher(
 
   return {
     success: false,
-    error: "Invalid voucher code. Please check your Care Pass code format (e.g. CARE-XXXX-TFL).",
+    error:
+      "Invalid or unrecognised Care Pass code. Purchase a Care Gift or session pass in the store to receive a valid voucher.",
   };
+}
+
+/**
+ * Server-side gate used before a counseling session may start. Confirms the
+ * caller actually holds a valid Care Pass — a purchased voucher that exists in
+ * the database (active or already redeemed) or the advertised demo code.
+ * This is the authoritative check; the client-side paywall is only UX.
+ */
+export async function verifyVoucherAccess(code?: string | null): Promise<boolean> {
+  const cleanCode = (code || "").trim().toUpperCase();
+  if (!cleanCode) return false;
+
+  if (cleanCode === DEMO_VOUCHER_CODE) return true;
+
+  try {
+    const admin = createAdminSupabaseClient();
+    const { data } = await admin
+      .from("vouchers")
+      .select("id,status")
+      .eq("code", cleanCode)
+      .single();
+
+    // A purchased voucher exists — active (not yet used) or redeemed (this
+    // user just unlocked it and is starting their session).
+    if (data && (data.status === "active" || data.status === "redeemed")) {
+      return true;
+    }
+  } catch {
+    // DB unavailable — only the demo code (handled above) can pass.
+  }
+
+  return false;
 }
