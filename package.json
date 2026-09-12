@@ -9,6 +9,11 @@
     "lint": "next lint",
     "test": "tsx scripts/test-verification.ts",
     "test:sms": "tsx scripts/test-httpsms.ts",
+    "test:access": "tsx scripts/test-access-control.ts",
+    "check:config": "tsx scripts/check-production-config.ts",
+    "check:audio": "tsx scripts/check-audio-records.ts",
+    "check:mpesa": "tsx scripts/check-mpesa-config.ts",
+    "test:mpesa": "tsx scripts/test-mpesa.ts",
     "test:ai": "tsx scripts/test-ai-safety.ts"
   },
   "dependencies": {

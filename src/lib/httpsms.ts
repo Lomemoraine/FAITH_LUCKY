@@ -60,14 +60,14 @@ export async function sendSMS({ to, content }: SendSMSOptions): Promise<SendSMSR
         from: fromNumber,
         to: normalizedTo,
       }),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[httpSMS Error ${response.status}]:`, errorText);
+      console.error(`[httpSMS Error ${response.status}]`);
       return {
         status: "error",
-        message: `HTTP ${response.status}: ${errorText}`,
+        message: `SMS provider returned HTTP ${response.status}.`,
       };
     }
 
@@ -76,11 +76,11 @@ export async function sendSMS({ to, content }: SendSMSOptions): Promise<SendSMSR
       status: "success",
       data: data.data,
     };
-  } catch (error) {
-    console.error("[httpSMS Exception]:", error);
+  } catch {
+    console.error("[httpSMS] Network request failed.");
     return {
       status: "error",
-      message: error instanceof Error ? error.message : "Unknown SMS network error",
+      message: "SMS network request failed.",
     };
   }
 }

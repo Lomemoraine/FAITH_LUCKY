@@ -1,6 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import type { PaymentView } from "@/lib/mpesa/payments";
+import NextImage from "next/image";
 import { StoreProduct, StoreOrder, CareVoucher } from "@/lib/types";
 import {
   ShoppingBag,
@@ -35,6 +37,61 @@ export function StoreView({ onGoToCounselor }: StoreViewProps) {
     voucher: CareVoucher;
   } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [payment, setPayment] = useState<PaymentView | null>(null);
+  const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
+  const [attemptKey, setAttemptKey] = useState<string | null>(null);
+  const submitting = useRef(false);
+
+  const applyPayment = useCallback((data: PaymentView) => {
+    setPayment(data);
+    setSelectedProduct((previous) => previous || { id: data.order.productId, name: data.order.itemName,
+      description: "", priceKes: data.order.amountKes, carePerk: data.voucher?.perkDescription || "Care Pass",
+      therapySessionsCount: data.voucher?.therapySessions || 1, category: "service" });
+    if (data.order.paymentStatus === "completed" && data.voucher) setCheckoutSuccess({ order: data.order, voucher: data.voucher });
+    if (data.order.paymentStatus === "pending") {
+      setPendingOrderId(data.order.id);
+      try { localStorage.setItem("tfl-payment-order-v1", data.order.id); } catch { /* Storage may be unavailable. */ }
+    } else {
+      setPendingOrderId(null);
+      setAttemptKey(null);
+      try { localStorage.removeItem("tfl-payment-order-v1"); localStorage.removeItem("tfl-payment-attempt-v1"); } catch { /* Keep current state. */ }
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const key = localStorage.getItem("tfl-payment-attempt-v1");
+      const orderId = localStorage.getItem("tfl-payment-order-v1");
+      setAttemptKey(key);
+      if (orderId) setPendingOrderId(orderId);
+      else if (key) {
+        fetch(`/api/store/orders?attempt=${encodeURIComponent(key)}`, { cache: "no-store" })
+          .then(async (response) => { if (response.ok) applyPayment(await response.json()); })
+          .catch(() => setCheckoutError("Unable to recover your previous checkout. Retry with the same details before starting another payment."));
+      }
+    } catch { /* Checkout still works without local storage; keep the order number. */ }
+  }, [applyPayment]);
+
+  useEffect(() => {
+    if (!pendingOrderId) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      try {
+        const response = await fetch(`/api/store/orders/${pendingOrderId}`, { signal: controller.signal, cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || "Unable to check payment.");
+        if (!controller.signal.aborted) { applyPayment(data); setCheckoutError(null); }
+      } catch {
+        if (!controller.signal.aborted) setCheckoutError("Payment status is temporarily unavailable. Keep this order number; do not pay again while confirmation is pending.");
+      } finally {
+        if (!controller.signal.aborted) timer = setTimeout(poll, 15000);
+      }
+    }
+    void poll();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [pendingOrderId, applyPayment]);
 
   useEffect(() => {
     fetchProducts();
@@ -57,17 +114,25 @@ export function StoreView({ onGoToCounselor }: StoreViewProps) {
 
   async function handleMpesaSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedProduct) return;
+    if (!selectedProduct || submitting.current || pendingOrderId) return;
 
+    submitting.current = true;
     setIsProcessingCheckout(true);
     setCheckoutError(null);
 
     try {
+      const auth = await fetch("/api/auth/anonymous", { method: "POST" });
+      const profile = await auth.json();
+      if (!auth.ok || !profile.success) { setCheckoutError(profile.error || "Unable to start your anonymous session."); return; }
+      const key = attemptKey || crypto.randomUUID();
+      setAttemptKey(key);
+      try { localStorage.setItem("tfl-payment-attempt-v1", key); } catch { /* Retain key in memory. */ }
       const res = await fetch("/api/store/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           productId: selectedProduct.id,
+          idempotencyKey: key,
           phoneNumber,
           shippingAddress: selectedProduct.category === "service" ? "Digital Session" : shippingAddress,
         }),
@@ -77,14 +142,12 @@ export function StoreView({ onGoToCounselor }: StoreViewProps) {
       if (!res.ok || !data.success) {
         setCheckoutError(data.error || "Failed to process M-Pesa STK checkout. Please check your phone number.");
       } else {
-        setCheckoutSuccess({
-          order: data.order,
-          voucher: data.voucher,
-        });
+        applyPayment(data);
       }
     } catch {
       setCheckoutError("Connection error while connecting to M-Pesa gateway.");
     } finally {
+      submitting.current = false;
       setIsProcessingCheckout(false);
     }
   }
@@ -96,11 +159,8 @@ export function StoreView({ onGoToCounselor }: StoreViewProps) {
   }
 
   function resetCheckoutModal() {
-    setSelectedProduct(null);
-    setCheckoutSuccess(null);
-    setCheckoutError(null);
-    setPhoneNumber("");
-    setShippingAddress("");
+    if (submitting.current) return;
+    setCheckoutOpen(false);
   }
 
   const categoryIcons: Record<string, string> = {
@@ -112,6 +172,14 @@ export function StoreView({ onGoToCounselor }: StoreViewProps) {
 
   return (
     <div className="mx-auto max-w-5xl space-y-10">
+      {payment && !checkoutOpen && (
+        <div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 p-5 space-y-2">
+          <p>{payment.message}</p>
+          <p className="text-xs break-all">Order: {payment.order.orderNumber}</p>
+          <button onClick={() => setCheckoutOpen(true)} className="font-semibold underline">View order</button>
+        </div>
+      )}
+      {checkoutError && !checkoutOpen && <p role="alert" className="text-sm text-red-700">{checkoutError}</p>}
       {/* Header Banner */}
       <div className="rounded-3xl bg-gradient-to-br from-rose-500 via-rose-600 to-pink-600 p-8 text-white shadow-xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
@@ -179,7 +247,10 @@ export function StoreView({ onGoToCounselor }: StoreViewProps) {
                   {/* Large ecommerce-style product image hero */}
                   <div className="relative w-full aspect-[4/3] overflow-hidden bg-slate-100">
                     {product.imageUrl ? (
-                      <img
+                      <NextImage
+                        fill
+                        sizes="(max-width: 768px) 100vw, 33vw"
+                        unoptimized
                         src={product.imageUrl}
                         alt={product.name}
                         className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
@@ -236,7 +307,11 @@ export function StoreView({ onGoToCounselor }: StoreViewProps) {
 
                     {/* CTA */}
                     <button
-                      onClick={() => setSelectedProduct(product)}
+                      onClick={() => {
+                        if (pendingOrderId) { setCheckoutOpen(true); return; }
+                        setSelectedProduct(product); setCheckoutSuccess(null); setPayment(null); setCheckoutError(null);
+                        setPhoneNumber(""); setShippingAddress(""); setCheckoutOpen(true);
+                      }}
                       className={`mt-5 w-full py-3 rounded-xl text-xs font-bold text-white transition-all shadow-sm flex items-center justify-center gap-1.5 ${
                         isDirectService
                           ? "bg-emerald-600 hover:bg-emerald-700"
@@ -280,10 +355,21 @@ export function StoreView({ onGoToCounselor }: StoreViewProps) {
       </div>
 
       {/* M-Pesa Checkout Modal */}
-      {selectedProduct && (
+      {checkoutOpen && selectedProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl border border-rose-100 max-h-[90vh] overflow-y-auto">
-            {!checkoutSuccess ? (
+            {payment && payment.order.paymentStatus !== "completed" ? (
+              <div className="space-y-5" role="status">
+                <h3 className="text-xl font-bold">{payment.order.paymentStatus === "pending" ? "Waiting for payment confirmation" : "Payment not completed"}</h3>
+                <p>{payment.message}</p>
+                <p className="text-sm">KES {payment.order.amountKes.toLocaleString()} — {payment.order.itemName}</p>
+                <p className="text-xs break-all">Order: {payment.order.orderNumber}</p>
+                {checkoutError && <p role="alert" className="text-red-700 text-sm">{checkoutError}</p>}
+                {payment.order.paymentStatus === "pending" && <p className="text-sm text-slate-600">No Care Pass is issued until payment is confirmed. You can close this dialog and return to the same order.</p>}
+                {payment.order.paymentStatus === "failed" && <button onClick={() => { setPayment(null); setCheckoutError(null); }} className="font-semibold underline">Try a new payment</button>}
+                <button onClick={resetCheckoutModal} className="block rounded-xl border p-3">Close</button>
+              </div>
+            ) : !checkoutSuccess ? (
               <div className="space-y-5">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                   <div>
@@ -296,6 +382,7 @@ export function StoreView({ onGoToCounselor }: StoreViewProps) {
                   </div>
                   <button
                     onClick={resetCheckoutModal}
+                    disabled={isProcessingCheckout}
                     className="text-slate-400 hover:text-slate-600 text-lg"
                   >
                     ✕
@@ -347,6 +434,8 @@ export function StoreView({ onGoToCounselor }: StoreViewProps) {
                       </label>
                       <input
                         type="text"
+                        required
+                        minLength={5}
                         placeholder="e.g. Westlands, Nairobi or Town Pick-up"
                         value={shippingAddress}
                         onChange={(e) => setShippingAddress(e.target.value)}
@@ -359,6 +448,7 @@ export function StoreView({ onGoToCounselor }: StoreViewProps) {
                     <button
                       type="button"
                       onClick={resetCheckoutModal}
+                      disabled={isProcessingCheckout}
                       className="w-1/3 py-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
                     >
                       Cancel
@@ -392,7 +482,7 @@ export function StoreView({ onGoToCounselor }: StoreViewProps) {
 
                 <div>
                   <span className="text-xs font-bold uppercase tracking-wider text-emerald-600">
-                    Payment Successful • Receipt #{checkoutSuccess.order.mpesaReceiptNumber}
+                    Payment Successful{checkoutSuccess.order.mpesaReceiptNumber ? ` • Receipt #${checkoutSuccess.order.mpesaReceiptNumber}` : ""}
                   </span>
                   <h3 className="text-2xl font-display font-bold text-slate-900 mt-1">
                     Your Care Pass Is Ready!

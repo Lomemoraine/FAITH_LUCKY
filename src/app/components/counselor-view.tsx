@@ -52,11 +52,14 @@ export function CounselorView({
   // Chat Messaging State
   const [newMessage, setNewMessage] = useState("");
   const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [messageError, setMessageError] = useState<string | null>(null);
+  const [directoryError, setDirectoryError] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const voucherInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleRedeemVoucher = useCallback(async (codeToRedeem?: string) => {
-    const code = (codeToRedeem || voucherCodeInput).trim().toUpperCase();
+  const handleRedeemVoucher = useCallback(async (codeToRedeem: string) => {
+    const code = codeToRedeem.trim().toUpperCase();
     if (!code) {
       setVoucherError("Please enter a Care Pass code (e.g. CARE-XXXX-TFL).");
       return;
@@ -85,31 +88,65 @@ export function CounselorView({
     } finally {
       setIsRedeemingVoucher(false);
     }
-  }, [voucherCodeInput]);
+  }, []);
 
   useEffect(() => {
     fetchCounselors();
+  }, []);
+
+  useEffect(() => {
     if (initialVoucherCode) {
       handleRedeemVoucher(initialVoucherCode);
     }
   }, [initialVoucherCode, handleRedeemVoucher]);
 
   useEffect(() => {
-    if (activeSession) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [activeSession?.id, activeSession?.messages.length]);
+
+  const sessionId = activeSession?.id;
+  useEffect(() => {
+    if (!sessionId) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    setSyncError(null);
+    async function refreshMessages() {
+      try {
+        const response = await fetch(`/api/counseling/messages?sessionId=${encodeURIComponent(sessionId!)}`, {
+          signal: controller.signal, cache: "no-store",
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success || !Array.isArray(data.messages)) throw new Error("Refresh failed");
+        if (controller.signal.aborted) return;
+        setActiveSession((previous) => {
+          if (!previous || previous.id !== sessionId) return previous;
+          const messages = new Map(previous.messages.map((message) => [message.id, message]));
+          for (const message of data.messages as CounselingMessage[]) messages.set(message.id, message);
+          return { ...previous, status: data.status, messages: Array.from(messages.values()).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)) };
+        });
+        setSyncError(null);
+      } catch {
+        if (!controller.signal.aborted) setSyncError("Conversation updates are temporarily unavailable. Reconnecting…");
+      } finally {
+        if (!controller.signal.aborted) timer = setTimeout(refreshMessages, 4000);
+      }
     }
-  }, [activeSession]);
+    void refreshMessages();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [sessionId]);
 
   async function fetchCounselors() {
     setIsLoadingCounselors(true);
+    setDirectoryError(null);
     try {
       const res = await fetch("/api/counseling/counselors");
       const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || "Unable to load counselors.");
       if (data.success && data.counselors) {
         setCounselors(data.counselors);
       }
-    } catch {
-      // Fallback
+    } catch (error) {
+      setDirectoryError(error instanceof Error ? error.message : "Counselors could not be loaded. Please try again.");
     } finally {
       setIsLoadingCounselors(false);
     }
@@ -133,6 +170,7 @@ export function CounselorView({
     }
 
     setIsStartingSession(true);
+    setMessageError(null);
     try {
       const res = await fetch("/api/counseling/sessions", {
         method: "POST",
@@ -171,60 +209,31 @@ export function CounselorView({
 
   async function handleSendMessage(e: React.FormEvent) {
     e.preventDefault();
-    if (!activeSession || !newMessage.trim() || isSendingMessage) return;
+    if (!activeSession || activeSession.status !== "active" || !newMessage.trim() || isSendingMessage) return;
 
     const userText = newMessage.trim();
-    setNewMessage("");
+    const sessionId = activeSession.id;
     setIsSendingMessage(true);
-
-    const clientMsg: CounselingMessage = {
-      id: `msg-${Date.now()}`,
-      sessionId: activeSession.id,
-      senderRole: "client",
-      content: userText,
-      createdAt: new Date().toISOString(),
-    };
-
-    // Optimistically update
-    setActiveSession((prev) =>
-      prev ? { ...prev, messages: [...prev.messages, clientMsg] } : null
-    );
+    setMessageError(null);
 
     try {
-      await fetch("/api/counseling/messages", {
+      const response = await fetch("/api/counseling/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sessionId: activeSession.id,
-          senderRole: "client",
+          sessionId,
           content: userText,
         }),
       });
 
-      // Simulated empathetic psychologist reply
-      setTimeout(() => {
-        const counselorReplies = [
-          "Thank you for sharing that with me. What you're experiencing is completely valid. How long have you felt this way?",
-          "I hear how heavy this feels. Let's take a slow breath together. Can you tell me what typically brings you the most relief when this happens?",
-          "You showed great courage expressing this. You are not alone in this feeling. We will work through it step by step.",
-        ];
-        const replyText =
-          counselorReplies[Math.floor(Math.random() * counselorReplies.length)];
-
-        const counselorMsg: CounselingMessage = {
-          id: `cmsg-${Date.now()}`,
-          sessionId: activeSession.id,
-          senderRole: "counselor",
-          content: replyText,
-          createdAt: new Date().toISOString(),
-        };
-
-        setActiveSession((prev) =>
-          prev ? { ...prev, messages: [...prev.messages, counselorMsg] } : null
-        );
-      }, 1500);
-    } catch (err) {
-      console.error("Send message error:", err);
+      const data = await response.json();
+      if (!response.ok || !data.success || !data.message) throw new Error(data.error || "Message delivery failed.");
+      setActiveSession((prev) => prev?.id === sessionId
+        ? { ...prev, messages: prev.messages.some((message) => message.id === data.message.id) ? prev.messages : [...prev.messages, data.message] }
+        : prev);
+      setNewMessage((draft) => draft.trim() === userText ? "" : draft);
+    } catch {
+      setMessageError("Your message was not confirmed as delivered. Your draft has been kept; check the conversation before retrying.");
     } finally {
       setIsSendingMessage(false);
     }
@@ -248,7 +257,7 @@ export function CounselorView({
                   </h2>
                   <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-semibold">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-                    Online & Active
+                    {selectedCounselor.isOnline ? "Available" : "Awaiting counselor"}
                   </span>
                 </div>
                 <p className="text-xs text-slate-400">
@@ -276,7 +285,7 @@ export function CounselorView({
                 }}
                 className="text-xs px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
               >
-                End Consultation
+                Back to counselors
               </button>
             </div>
           </div>
@@ -285,7 +294,7 @@ export function CounselorView({
           <div className="bg-emerald-50/80 border-b border-emerald-100 px-4 py-2 flex items-center justify-between text-xs text-emerald-800">
             <div className="flex items-center gap-1.5 font-medium">
               <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>100% Confidential & Encrypted. Communicating directly with a licensed professional.</span>
+              <span>Private consultation. Replies appear here when your counselor sends them.</span>
             </div>
             <span className="font-mono text-[11px] text-emerald-700 font-bold">
               Session #{activeSession.id.slice(-6)}
@@ -346,6 +355,9 @@ export function CounselorView({
           </div>
 
           {/* Message Input Box */}
+          {syncError && <p role="status" className="px-4 py-2 text-sm text-amber-800 bg-amber-50">{syncError}</p>}
+          {activeSession.status !== "active" && <p role="status" className="px-4 py-2 text-sm">This consultation has ended. You can still read the conversation.</p>}
+          {messageError && <p role="alert" className="px-4 py-3 text-sm text-rose-800 bg-rose-50">{messageError}</p>}
           <form
             onSubmit={handleSendMessage}
             className="p-4 bg-white border-t border-slate-100 flex items-center gap-3"
@@ -354,12 +366,14 @@ export function CounselorView({
               type="text"
               placeholder={`Type a private message to ${selectedCounselor.name}...`}
               value={newMessage}
+              maxLength={5000}
+              disabled={activeSession.status !== "active"}
               onChange={(e) => setNewMessage(e.target.value)}
               className="flex-1 text-xs sm:text-sm px-4 py-3 border border-slate-200 rounded-2xl focus:outline-none focus:border-rose-500 bg-slate-50/60"
             />
             <button
               type="submit"
-              disabled={isSendingMessage || !newMessage.trim()}
+              disabled={isSendingMessage || !newMessage.trim() || activeSession.status !== "active"}
               className="px-5 py-3 rounded-2xl bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white font-bold text-xs sm:text-sm transition-all shadow-sm flex items-center gap-1.5"
             >
               <span>Send</span>
@@ -430,7 +444,7 @@ export function CounselorView({
                   <KeyRound className="w-4 h-4 text-rose-500" />
                   <span>Have a Care Pass Voucher Code?</span>
                 </div>
-                <span className="text-[11px] text-slate-400">Demo Code: CARE-DEMO-TFL</span>
+                <span className="text-[11px] text-slate-400">Use the Care Pass from your confirmed purchase.</span>
               </div>
 
               {voucherError && (
@@ -449,7 +463,7 @@ export function CounselorView({
                   className="flex-1 uppercase font-mono text-sm px-4 py-3 border border-slate-200 rounded-xl focus:outline-none focus:border-rose-500 bg-slate-50/50"
                 />
                 <button
-                  onClick={() => handleRedeemVoucher()}
+                  onClick={() => handleRedeemVoucher(voucherCodeInput)}
                   disabled={isRedeemingVoucher || !voucherCodeInput.trim()}
                   className="px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-bold text-xs transition-all flex items-center justify-center gap-2"
                 >
@@ -489,7 +503,14 @@ export function CounselorView({
               )}
             </div>
 
-            {isLoadingCounselors ? (
+            {directoryError ? (
+              <div role="alert" className="p-6 rounded-xl bg-rose-50 text-rose-800">
+                <p>{directoryError}</p>
+                <button onClick={fetchCounselors} className="mt-3 underline">Retry loading counselors</button>
+              </div>
+            ) : !isLoadingCounselors && counselors.length === 0 ? (
+              <p className="p-6 text-slate-600">No counselors are listed yet. Urgent-help resources remain available.</p>
+            ) : isLoadingCounselors ? (
               <div className="p-16 text-center text-slate-400">
                 <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-3 text-rose-400" />
                 <p className="text-sm">Connecting to verified counselors...</p>
@@ -509,7 +530,7 @@ export function CounselorView({
                         </div>
                         <span className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100">
                           <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                          Available
+                          {counselor.isOnline ? "Available" : "Offline"}
                         </span>
                       </div>
 

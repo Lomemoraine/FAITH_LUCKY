@@ -3,7 +3,8 @@ import { createAdminSupabaseClient } from "../supabase/admin";
 import { evaluateSafetyPolicyAsync } from "../safety/policy";
 import { checkRateLimit } from "../ratelimit/limiter";
 import { sendCrisisEscalationAlert } from "../httpsms";
-import { generateAnonymousHandle, getRandomAvatarId } from "../identity/pseudonym";
+import { AccessError, requireActiveProfile } from "../auth/session";
+import { randomUUID } from "node:crypto";
 import { PublicPost, PublicReply, ReportReason } from "../types";
 
 export interface CreatePostInput {
@@ -120,66 +121,13 @@ export const DEFAULT_COMMUNITY_POSTS: PublicPost[] = [
   },
 ];
 
-let activeCommunityPosts: PublicPost[] = [...DEFAULT_COMMUNITY_POSTS];
-
 export async function getCurrentSessionProfile(): Promise<{
   id: string;
   public_id: string;
   anonymous_handle: string;
   avatar_id: string;
 }> {
-  // 1. Try Supabase Auth
-  try {
-    const supabase = createServerSupabaseClient();
-    const { data: userData } = await supabase.auth.getUser();
-    if (userData?.user) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("public_id, anonymous_handle, avatar_id")
-        .eq("id", userData.user.id)
-        .maybeSingle();
-
-      if (profile) {
-        return {
-          id: userData.user.id,
-          public_id: profile.public_id,
-          anonymous_handle: profile.anonymous_handle,
-          avatar_id: profile.avatar_id,
-        };
-      }
-    }
-  } catch {
-    // Continue to cookie check
-  }
-
-  // 2. Try Cookie Profile
-  try {
-    const { cookies } = await import("next/headers");
-    const cookieStore = cookies();
-    const existingCookie = cookieStore.get("tfl_anon_profile")?.value;
-
-    if (existingCookie) {
-      const parsed = JSON.parse(existingCookie);
-      if (parsed.anonymous_handle && parsed.public_id) {
-        return {
-          id: parsed.id || `anon_${parsed.public_id}`,
-          public_id: parsed.public_id,
-          anonymous_handle: parsed.anonymous_handle,
-          avatar_id: parsed.avatar_id || "lotus",
-        };
-      }
-    }
-  } catch {
-    // Continue to fallback
-  }
-
-  // 3. Fallback Profile
-  return {
-    id: `anon_dev_guest`,
-    public_id: `usr_dev_guest`,
-    anonymous_handle: generateAnonymousHandle(),
-    avatar_id: getRandomAvatarId(),
-  };
+  return requireActiveProfile();
 }
 
 interface RawProfile {
@@ -225,10 +173,13 @@ export async function fetchCommunityFeed(options: {
   cursor?: string;
   limit?: number;
 }): Promise<{ posts: PublicPost[]; nextCursor?: string }> {
-  const currentProfile = await getCurrentSessionProfile();
-  const currentUserId = currentProfile.id;
+  const currentProfile = await getCurrentSessionProfile().catch((error) => {
+    if (error instanceof AccessError && (error.status === 401 || error.status === 403)) return null;
+    throw error;
+  });
+  const currentUserId = currentProfile?.id;
 
-  const limit = options.limit || 20;
+  const limit = Math.min(100, Math.max(1, Number.isFinite(options.limit) ? options.limit! : 20));
 
   try {
     const supabase = createServerSupabaseClient();
@@ -286,7 +237,8 @@ export async function fetchCommunityFeed(options: {
 
     const { data, error } = await query;
 
-    if (!error && data && data.length > 0) {
+    if (error) throw error;
+    if (data) {
       const rawRows = data as unknown as RawPost[];
       const hasMore = rawRows.length > limit;
       const items = hasMore ? rawRows.slice(0, limit) : rawRows;
@@ -334,21 +286,10 @@ export async function fetchCommunityFeed(options: {
       return { posts, nextCursor };
     }
   } catch (err) {
-    console.warn("[Community] Supabase feed query warning (using active feed):", err);
+    console.error("[Community] Feed unavailable:", err);
+    throw new AccessError("Community stories are temporarily unavailable.", 503);
   }
-
-  // Fallback to active in-memory feed
-  let filtered = activeCommunityPosts;
-  if (options.roomId && options.roomId !== "all") {
-    filtered = filtered.filter((p) => p.roomId === options.roomId);
-  }
-
-  const posts = filtered.map((p) => ({
-    ...p,
-    isAuthor: p.authorPublicId === currentProfile.public_id,
-  }));
-
-  return { posts };
+  return { posts: [] };
 }
 
 const ROOM_NAMES: Record<string, string> = {
@@ -378,7 +319,7 @@ export async function createPostAction(input: CreatePostInput): Promise<CreatePo
   // Safety screening (Hybrid fast-regex + AI semantic triage)
   const safetyCheck = await evaluateSafetyPolicyAsync(content);
 
-  const newPostId = `post-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+  const newPostId = randomUUID();
   const now = new Date().toISOString();
   const roomName = ROOM_NAMES[input.roomId || "anxiety"] || "Support Room";
 
@@ -399,10 +340,7 @@ export async function createPostAction(input: CreatePostInput): Promise<CreatePo
     isAuthor: true,
   };
 
-  // Add to in-memory active feed
-  activeCommunityPosts = [newPost, ...activeCommunityPosts];
-
-  // Also try Supabase DB insert if online
+  // Report success only after the database accepts the post.
   try {
     const supabase = createServerSupabaseClient();
     await supabase.from("posts").insert({
@@ -413,7 +351,7 @@ export async function createPostAction(input: CreatePostInput): Promise<CreatePo
       audio_url: input.audioUrl || null,
       audio_duration: input.audioDuration || null,
       status: "published",
-    });
+    }).throwOnError();
 
     if (safetyCheck.triggered && safetyCheck.severity) {
       const adminClient = createAdminSupabaseClient();
@@ -423,7 +361,7 @@ export async function createPostAction(input: CreatePostInput): Promise<CreatePo
         target_kind: "post",
         post_id: newPost.id,
         status: "open",
-      });
+      }).throwOnError();
 
       if (safetyCheck.severity === "priority" || safetyCheck.severity === "critical") {
         sendCrisisEscalationAlert({
@@ -434,7 +372,8 @@ export async function createPostAction(input: CreatePostInput): Promise<CreatePo
       }
     }
   } catch (err) {
-    console.warn("[Community] DB save warning (post saved to active feed):", err);
+    console.error("[Community] Post save failed:", err);
+    return { success: false, error: "Your post could not be saved. Please try again.", showSafetyResources: safetyCheck.triggered, safetySeverity: safetyCheck.severity };
   }
 
   return {
@@ -463,7 +402,7 @@ export async function createReplyAction(input: CreateReplyInput): Promise<Create
   // Safety check
   const safetyCheck = await evaluateSafetyPolicyAsync(content);
 
-  const replyId = `rep-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+  const replyId = randomUUID();
   const now = new Date().toISOString();
 
   const newReply: PublicReply = {
@@ -479,18 +418,7 @@ export async function createReplyAction(input: CreateReplyInput): Promise<Create
     isAuthor: true,
   };
 
-  // Add to active in-memory feed
-  activeCommunityPosts = activeCommunityPosts.map((p) => {
-    if (p.id === input.postId) {
-      return {
-        ...p,
-        replies: [...p.replies, newReply],
-      };
-    }
-    return p;
-  });
-
-  // Also try Supabase DB insert
+  // Persist before confirming delivery.
   try {
     const supabase = createServerSupabaseClient();
     await supabase.from("replies").insert({
@@ -501,9 +429,15 @@ export async function createReplyAction(input: CreateReplyInput): Promise<Create
       audio_url: input.audioUrl || null,
       audio_duration: input.audioDuration || null,
       status: "published",
-    });
+    }).throwOnError();
+    if (safetyCheck.triggered && safetyCheck.severity) {
+      await createAdminSupabaseClient().from("moderation_cases").insert({
+        source: "safety_policy", severity: safetyCheck.severity, target_kind: "reply", reply_id: replyId, status: "open",
+      }).throwOnError();
+    }
   } catch (err) {
-    console.warn("[Community] DB save reply warning (saved to active feed):", err);
+    console.error("[Community] Reply save failed:", err);
+    return { success: false, error: "Your reply could not be saved. Please retry.", showSafetyResources: safetyCheck.triggered, safetySeverity: safetyCheck.severity };
   }
 
   return {
@@ -526,19 +460,6 @@ export async function toggleEmpathyReaction(postId: string): Promise<{ success: 
 
   let nextLiked = false;
 
-  // Update in-memory feed
-  activeCommunityPosts = activeCommunityPosts.map((p) => {
-    if (p.id === postId) {
-      nextLiked = !p.hasLiked;
-      return {
-        ...p,
-        hasLiked: nextLiked,
-        empathyCount: nextLiked ? p.empathyCount + 1 : Math.max(0, p.empathyCount - 1),
-      };
-    }
-    return p;
-  });
-
   try {
     const supabase = createServerSupabaseClient();
     const { data: existing } = await supabase
@@ -546,44 +467,47 @@ export async function toggleEmpathyReaction(postId: string): Promise<{ success: 
       .select("post_id")
       .eq("post_id", postId)
       .eq("profile_id", userId)
-      .maybeSingle();
+      .maybeSingle().throwOnError();
 
     if (existing) {
-      await supabase.from("reactions").delete().eq("post_id", postId).eq("profile_id", userId);
+      await supabase.from("reactions").delete().eq("post_id", postId).eq("profile_id", userId).throwOnError();
     } else {
-      await supabase.from("reactions").insert({ post_id: postId, profile_id: userId });
+      await supabase.from("reactions").insert({ post_id: postId, profile_id: userId }).throwOnError();
     }
+    nextLiked = !existing;
   } catch (err) {
-    console.warn("[Community] DB reaction warning (updated in active feed):", err);
+    console.error("[Community] Reaction failed:", err);
+    return { success: false, liked: false };
   }
 
   return { success: true, liked: nextLiked };
 }
 
 export async function deletePostAction(postId: string): Promise<{ success: boolean; error?: string }> {
-  activeCommunityPosts = activeCommunityPosts.filter((p) => p.id !== postId);
+  const profile = await requireActiveProfile();
 
   try {
     const supabase = createServerSupabaseClient();
-    await supabase.from("posts").delete().eq("id", postId);
+    const { data, error } = await supabase.from("posts").delete().eq("id", postId).eq("author_id", profile.id).select("id");
+    if (error || !data?.length) return { success: false, error: "Post not found or deletion not allowed." };
   } catch (err) {
     console.warn("[Community] DB delete post warning:", err);
+    return { success: false, error: "Unable to delete post." };
   }
 
   return { success: true };
 }
 
 export async function deleteReplyAction(replyId: string): Promise<{ success: boolean; error?: string }> {
-  activeCommunityPosts = activeCommunityPosts.map((p) => ({
-    ...p,
-    replies: p.replies.filter((r) => r.id !== replyId),
-  }));
+  const profile = await requireActiveProfile();
 
   try {
     const supabase = createServerSupabaseClient();
-    await supabase.from("replies").delete().eq("id", replyId);
+    const { data, error } = await supabase.from("replies").delete().eq("id", replyId).eq("author_id", profile.id).select("id");
+    if (error || !data?.length) return { success: false, error: "Reply not found or deletion not allowed." };
   } catch (err) {
     console.warn("[Community] DB delete reply warning:", err);
+    return { success: false, error: "Unable to delete reply." };
   }
 
   return { success: true };
@@ -612,9 +536,10 @@ export async function reportContentAction(input: {
       post_id: input.targetKind === "post" ? input.targetId : null,
       reply_id: input.targetKind === "reply" ? input.targetId : null,
       status: "open",
-    });
+    }).throwOnError();
   } catch (err) {
     console.warn("[Community] DB report warning:", err);
+    return { success: false, error: "Unable to submit report. Please retry." };
   }
 
   return { success: true };

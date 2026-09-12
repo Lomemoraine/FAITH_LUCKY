@@ -8,43 +8,15 @@ export function isEmailAllowlisted(email: string): boolean {
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
 
-  const defaultAllowlist = [
-    "admin@talkfreelylifestyle.org",
-    "moderator@talkfreelylifestyle.org",
-    "faith@talkfreelylifestyle.org",
-    "dr.faith@talkfreelylifestyle.org",
-    "admin@safespace.org",
-  ];
-
-  const allowlist = [...envAllowlist, ...defaultAllowlist];
-  return allowlist.includes(email.trim().toLowerCase());
-}
-
-export function verifyAdminPassword(password: string): boolean {
-  const adminPass = process.env.ADMIN_PASSWORD || process.env.STAGING_ACCESS_PASSWORD || "safespace2026";
-  const clean = password.trim();
-  return clean === adminPass || clean === "admin123" || clean === "safespace2026";
+  return envAllowlist.includes(email.trim().toLowerCase());
 }
 
 export async function verifyCurrentModerator(): Promise<{ isModerator: boolean; userId?: string; email?: string }> {
-  // 1. Check for local dev / direct session cookie
-  const { cookies } = await import("next/headers");
-  const cookieStore = cookies();
-  const devSessionEmail = cookieStore.get("tfl_moderator_session")?.value;
-
-  if (devSessionEmail && isEmailAllowlisted(devSessionEmail)) {
-    return {
-      isModerator: true,
-      userId: `staff_${devSessionEmail.replace(/[^a-zA-Z0-9]/g, "_")}`,
-      email: devSessionEmail,
-    };
-  }
-
-  // 2. Check Supabase Auth
+  // Staff identity must be verified by Supabase, never by a client-supplied cookie.
   try {
     const supabase = createServerSupabaseClient();
     const { data: userData } = await supabase.auth.getUser();
-    if (!userData?.user) {
+    if (!userData?.user || userData.user.is_anonymous || !userData.user.email_confirmed_at) {
       return { isModerator: false };
     }
 
@@ -52,25 +24,26 @@ export async function verifyCurrentModerator(): Promise<{ isModerator: boolean; 
     const email = userData.user.email || "";
 
     // Verify staff role
-    const { data: roleData } = await supabase
+    const admin = createAdminSupabaseClient();
+    const { data: roleData, error: roleError } = await admin
       .from("staff_roles")
-      .select("role")
+      .select("role,revoked_at")
       .eq("auth_user_id", userId)
-      .is("revoked_at", null)
       .maybeSingle();
 
+    if (roleError || roleData?.revoked_at) return { isModerator: false };
     if (roleData && (roleData.role === "moderator" || roleData.role === "admin")) {
       return { isModerator: true, userId, email };
     }
 
     // If email is allowlisted but role row hasn't been created yet, grant role via admin client
-    if (email && isEmailAllowlisted(email)) {
-      const admin = createAdminSupabaseClient();
-      await admin.from("staff_roles").upsert({
+    if (!roleData && email && isEmailAllowlisted(email)) {
+      const { error } = await admin.from("staff_roles").insert({
         auth_user_id: userId,
         role: "moderator",
         revoked_at: null,
       });
+      if (error) return { isModerator: false };
       return { isModerator: true, userId, email };
     }
   } catch (err) {
@@ -440,4 +413,3 @@ export async function postClinicalIntervention(params: {
     replyId: insertedReply?.id,
   };
 }
-

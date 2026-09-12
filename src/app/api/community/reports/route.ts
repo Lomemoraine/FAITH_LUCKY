@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { AccessError } from "@/lib/auth/session";
 import { reportContentAction } from "@/lib/community/service";
 
 export async function POST(req: Request) {
@@ -22,7 +23,8 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ success: true });
-  } catch {
+  } catch (err) {
+    if (err instanceof AccessError) return NextResponse.json({ success: false, error: err.message }, { status: err.status });
     return NextResponse.json({ success: false, error: "Failed to report content" }, { status: 500 });
   }
 }

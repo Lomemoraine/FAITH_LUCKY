@@ -1,6 +1,5 @@
 import { createAdminSupabaseClient } from "../supabase/admin";
-import { sendVoucherSMS } from "../httpsms";
-import { StoreProduct, StoreOrder, CareVoucher } from "../types";
+import { StoreProduct, CareVoucher } from "../types";
 
 // The only non-purchased code accepted anywhere. Advertised in the UI for demos.
 export const DEMO_VOUCHER_CODE = "CARE-DEMO-TFL";
@@ -211,112 +210,6 @@ export async function deleteStoreProduct(id: string): Promise<boolean> {
   }
 }
 
-export async function processMpesaCheckout(params: {
-  productId: string;
-  phoneNumber: string;
-  shippingAddress?: string;
-}): Promise<{
-  success: boolean;
-  order?: StoreOrder;
-  voucher?: CareVoucher;
-  error?: string;
-}> {
-  const allProducts = await getStoreProducts(true);
-  const product = allProducts.find((p) => p.id === params.productId) || DEFAULT_PRODUCTS.find((p) => p.id === params.productId);
-  if (!product) {
-    return { success: false, error: "Selected product was not found." };
-  }
-
-  // Format Kenyan phone number
-  let cleanPhone = params.phoneNumber.replace(/[\s+-]/g, "");
-  if (cleanPhone.startsWith("0")) {
-    cleanPhone = "254" + cleanPhone.slice(1);
-  } else if (!cleanPhone.startsWith("254") && cleanPhone.length === 9) {
-    cleanPhone = "254" + cleanPhone;
-  }
-
-  if (!/^254(7|1)\d{8}$/.test(cleanPhone)) {
-    return { success: false, error: "Please enter a valid Safaricom/Airtel phone number (e.g. 0712345678)." };
-  }
-
-  const orderNumber = `TFL-${Date.now().toString().slice(-6)}`;
-  const voucherCode = generateVoucherCode();
-  const mpesaReceiptNumber = `QK${Math.floor(10000000 + Math.random() * 90000000)}`;
-
-  const now = new Date().toISOString();
-
-  const generatedVoucher: CareVoucher = {
-    id: `vouch-${Date.now()}`,
-    code: voucherCode,
-    therapySessions: product.therapySessionsCount,
-    perkDescription: product.carePerk,
-    status: "active",
-    buyerPhone: cleanPhone,
-    createdAt: now,
-  };
-
-  const createdOrder: StoreOrder = {
-    id: `ord-${Date.now()}`,
-    orderNumber,
-    productId: product.id,
-    itemName: product.name,
-    amountKes: product.priceKes,
-    phoneNumber: cleanPhone,
-    shippingAddress: params.shippingAddress || "Digital Voucher Delivery",
-    paymentMethod: "mpesa_stk",
-    paymentStatus: "completed",
-    mpesaReceiptNumber,
-    voucherCode,
-    createdAt: now,
-  };
-
-  try {
-    const admin = createAdminSupabaseClient();
-
-    // 1. Insert Voucher
-    const { data: voucherData } = await admin
-      .from("vouchers")
-      .insert({
-        code: voucherCode,
-        therapy_sessions: product.therapySessionsCount,
-        perk_description: product.carePerk,
-        buyer_phone: cleanPhone,
-        status: "active",
-      })
-      .select()
-      .single();
-
-    // 2. Insert Order
-    await admin.from("orders").insert({
-      order_number: orderNumber,
-      product_id: product.id,
-      item_name: product.name,
-      amount_kes: product.priceKes,
-      phone_number: cleanPhone,
-      shipping_address: params.shippingAddress || "Digital Voucher Delivery",
-      payment_method: "mpesa_stk",
-      payment_status: "completed",
-      mpesa_receipt_number: mpesaReceiptNumber,
-      voucher_id: voucherData?.id || null,
-    });
-  } catch (err) {
-    console.warn("[Store] Database save warning (using memory order/voucher):", err);
-  }
-
-  // Dispatch Care Pass voucher code SMS to customer
-  sendVoucherSMS({
-    customerPhone: cleanPhone,
-    voucherCode,
-    productTitle: product.name,
-  }).catch((err) => console.error("[Store] Failed to send voucher SMS:", err));
-
-  return {
-    success: true,
-    order: createdOrder,
-    voucher: generatedVoucher,
-  };
-}
-
 export async function validateAndRedeemVoucher(
   code: string,
   userProfileId?: string
@@ -327,6 +220,9 @@ export async function validateAndRedeemVoucher(
 }> {
   const cleanCode = code.trim().toUpperCase();
 
+  if (!userProfileId || cleanCode === DEMO_VOUCHER_CODE) {
+    return { success: false, error: "An authenticated profile and purchased Care Pass are required." };
+  }
   if (!cleanCode) {
     return { success: false, error: "Please enter a Care Pass code (e.g. CARE-XXXX-TFL)." };
   }
@@ -334,27 +230,25 @@ export async function validateAndRedeemVoucher(
   // 1. Real, purchased vouchers in the database are the source of truth.
   try {
     const admin = createAdminSupabaseClient();
-    const { data: dbVoucher } = await admin
+    // Conditional update is atomic: a second user cannot claim this voucher.
+    const { data: purchase, error: purchaseError } = await admin.from("orders")
+      .select("id,vouchers!inner(code)").eq("vouchers.code", cleanCode)
+      .eq("payment_status", "completed").not("payment_verified_at", "is", null).maybeSingle();
+    if (purchaseError || !purchase) return { success: false, error: "This Care Pass does not have a verified payment." };
+    const { error: claimError } = await admin.from("vouchers")
+      .update({ status: "redeemed", redeemed_by: userProfileId, redeemed_at: new Date().toISOString() })
+      .eq("code", cleanCode).eq("status", "active").is("redeemed_by", null);
+    if (claimError) throw claimError;
+    const { data: dbVoucher, error } = await admin
       .from("vouchers")
       .select("*")
       .eq("code", cleanCode)
       .single();
+    if (error) throw error;
 
     if (dbVoucher) {
-      if (dbVoucher.status === "redeemed") {
-        return { success: false, error: "This Care Pass voucher has already been redeemed." };
-      }
-
-      // Mark redeemed if user provided
-      if (userProfileId) {
-        await admin
-          .from("vouchers")
-          .update({
-            status: "redeemed",
-            redeemed_by: userProfileId,
-            redeemed_at: new Date().toISOString(),
-          })
-          .eq("id", dbVoucher.id);
+      if (dbVoucher.status !== "redeemed" || dbVoucher.redeemed_by !== userProfileId) {
+        return { success: false, error: "This Care Pass is expired or belongs to another profile." };
       }
 
       return {
@@ -364,29 +258,13 @@ export async function validateAndRedeemVoucher(
           code: dbVoucher.code,
           therapySessions: dbVoucher.therapy_sessions || 1,
           perkDescription: dbVoucher.perk_description || "1-on-1 Counselor Consultation Session",
-          status: "active",
+          status: "redeemed",
           createdAt: dbVoucher.created_at,
         },
       };
     }
   } catch {
-    // DB unavailable — fall through to the explicitly allowed demo code only.
-  }
-
-  // 2. The single, publicly advertised demo code (shown in the UI) is allowed
-  //    so the flow can be tested. NO other made-up "CARE-..." code is accepted.
-  if (cleanCode === DEMO_VOUCHER_CODE) {
-    return {
-      success: true,
-      voucher: {
-        id: `vouch-demo-${Date.now()}`,
-        code: cleanCode,
-        therapySessions: 1,
-        perkDescription: "1-on-1 Counselor Consultation Session (Demo)",
-        status: "active",
-        createdAt: new Date().toISOString(),
-      },
-    };
+    return { success: false, error: "Unable to verify this Care Pass. Check the code and try again." };
   }
 
   return {
@@ -398,28 +276,28 @@ export async function validateAndRedeemVoucher(
 
 /**
  * Server-side gate used before a counseling session may start. Confirms the
- * caller actually holds a valid Care Pass — a purchased voucher that exists in
- * the database (active or already redeemed) or the advertised demo code.
+ * caller owns the redeemed Care Pass in the database.
  * This is the authoritative check; the client-side paywall is only UX.
  */
-export async function verifyVoucherAccess(code?: string | null): Promise<boolean> {
+export async function verifyVoucherAccess(code?: string | null, userProfileId?: string): Promise<boolean> {
   const cleanCode = (code || "").trim().toUpperCase();
-  if (!cleanCode) return false;
+  if (!cleanCode || !userProfileId || cleanCode === DEMO_VOUCHER_CODE) return false;
 
-  if (cleanCode === DEMO_VOUCHER_CODE) return true;
 
   try {
     const admin = createAdminSupabaseClient();
     const { data } = await admin
       .from("vouchers")
-      .select("id,status")
+      .select("id,status,redeemed_by")
       .eq("code", cleanCode)
       .single();
 
     // A purchased voucher exists — active (not yet used) or redeemed (this
     // user just unlocked it and is starting their session).
-    if (data && (data.status === "active" || data.status === "redeemed")) {
-      return true;
+    if (data && data.status === "redeemed" && data.redeemed_by === userProfileId) {
+      const { data: purchase, error } = await admin.from("orders").select("id").eq("voucher_id", data.id)
+        .eq("payment_status", "completed").not("payment_verified_at", "is", null).maybeSingle();
+      return !error && !!purchase;
     }
   } catch {
     // DB unavailable — only the demo code (handled above) can pass.

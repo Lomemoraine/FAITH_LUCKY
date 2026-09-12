@@ -1,4 +1,5 @@
 "use client";
+import NextImage from "next/image";
 
 import React, { useState, useEffect, useCallback } from "react";
 import {
@@ -215,7 +216,7 @@ export default function AdminPortal() {
     try {
       const payload =
         authMode === "password"
-          ? { password: passwordInput }
+          ? { email: emailInput, password: passwordInput }
           : { email: emailInput };
 
       const res = await fetch("/api/moderation/auth", {
@@ -591,20 +592,25 @@ export default function AdminPortal() {
             <form onSubmit={handleAuthSubmit} className="space-y-4 text-left">
               {authMode === "password" ? (
                 <div>
+                  <label htmlFor="staff-email" className="block text-xs font-bold text-slate-700 mb-1.5">Staff email</label>
+                  <input id="staff-email" type="email" autoComplete="username" value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)} required
+                    className="w-full px-4 py-3 mb-4 rounded-xl border border-slate-200 text-sm" />
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                    Admin Passcode
+                    Staff account password
                   </label>
                   <input
                     type="password"
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
-                    placeholder="Enter password (e.g. safespace2026)"
+                    placeholder="Enter your account password"
+                    autoComplete="current-password"
                     required
                     autoFocus
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:border-rose-500 text-sm bg-slate-50/50"
                   />
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Default: <span className="font-mono text-slate-600">safespace2026</span>
+                    Use your authorized Supabase staff account.
                   </p>
                 </div>
               ) : (
@@ -1035,7 +1041,10 @@ export default function AdminPortal() {
                     <div className="space-y-3">
                       {p.imageUrl ? (
                         <div className="w-full h-36 rounded-2xl overflow-hidden border border-rose-100 bg-slate-50 mb-2">
-                          <img
+                          <NextImage
+                            width={640}
+                            height={360}
+                            unoptimized
                             src={p.imageUrl}
                             alt={p.name}
                             className="w-full h-full object-cover"
@@ -1334,7 +1343,10 @@ export default function AdminPortal() {
 
                 {productForm.imageUrl ? (
                   <div className="relative rounded-2xl overflow-hidden border border-rose-200 bg-slate-50 group">
-                    <img
+                    <NextImage
+                      width={640}
+                      height={360}
+                      unoptimized
                       src={productForm.imageUrl}
                       alt="Product Preview"
                       className="w-full h-36 object-cover"

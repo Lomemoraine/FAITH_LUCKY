@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { createAdminSupabaseClient } from "../supabase/admin";
 
-export type RateLimitAction = "create_post" | "create_reply" | "create_report" | "toggle_reaction" | "create_account";
+export type RateLimitAction = "create_post" | "create_reply" | "create_report" | "toggle_reaction" | "create_account" | "payment_checkout";
 
 interface RateLimitConfig {
   maxCount: number;
@@ -9,6 +9,7 @@ interface RateLimitConfig {
 }
 
 const RATE_LIMIT_CONFIGS: Record<RateLimitAction, RateLimitConfig> = {
+  payment_checkout: { maxCount: 10, windowSeconds: 600 },
   create_post: { maxCount: 3, windowSeconds: 3600 },
   create_reply: { maxCount: 10, windowSeconds: 3600 },
   create_report: { maxCount: 5, windowSeconds: 86400 },
@@ -51,7 +52,7 @@ export async function checkRateLimit(
     if (error) {
       console.error("[RateLimit] RPC Error:", error.message);
       // Fail open gracefully in development/fallback
-      return { allowed: true };
+      return action === "payment_checkout" ? { allowed: false, message: "Payment rate limiting is unavailable. Please try again shortly." } : { allowed: true };
     }
 
     const res = data as { allowed: boolean; current_count: number; max_count: number; reset_at: string };
@@ -68,6 +69,6 @@ export async function checkRateLimit(
     return { allowed: true };
   } catch (err) {
     console.error("[RateLimit] Unexpected error:", err);
-    return { allowed: true };
+    return action === "payment_checkout" ? { allowed: false, message: "Payment rate limiting is unavailable. Please try again shortly." } : { allowed: true };
   }
 }

@@ -33,6 +33,9 @@ function getAvatarIcon(avatarId?: string) {
 
 export default function SafeSpaceApp() {
   const [activeView, setActiveView] = useState<AppView>("home");
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("view") === "psychologist") setActiveView("psychologist");
+  }, []);
   const [selectedRoom, setSelectedRoom] = useState<RoomSlug>("all");
 
   // Auth / Profile State
@@ -96,6 +99,7 @@ export default function SafeSpaceApp() {
     try {
       const res = await fetch(`/api/community/posts?roomId=${room}`);
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Unable to load community stories.");
       if (data.posts) {
         setPosts(data.posts);
       } else {
@@ -207,10 +211,12 @@ export default function SafeSpaceApp() {
           body: formData,
         });
         const uploadData = await uploadRes.json();
-        if (uploadRes.ok && uploadData.success) {
-          audioUrl = uploadData.audioUrl;
-          audioDuration = uploadData.duration || attachedAudioDuration;
+        if (!uploadRes.ok || !uploadData.success || typeof uploadData.audioUrl !== "string" || !uploadData.audioUrl) {
+          setPostError(uploadData.error || "Your recording could not be uploaded. It is still here; please retry publishing.");
+          return;
         }
+        audioUrl = uploadData.audioUrl;
+        audioDuration = uploadData.duration || attachedAudioDuration;
       }
 
       const res = await fetch("/api/community/posts", {
@@ -575,6 +581,11 @@ export default function SafeSpaceApp() {
                         )}
 
                         {/* Audio Player if present */}
+                        {!post.audioUrl && post.content.trim() === "Shared a voice story" && (
+                          <p role="status" className="mt-3 text-sm text-amber-800 bg-amber-50 rounded-xl p-3">
+                            The audio attachment is missing from this older post. It cannot be played unless the original recording is recovered.
+                          </p>
+                        )}
                         {post.audioUrl && (
                           <div className="pt-1">
                             <VoicePlayer

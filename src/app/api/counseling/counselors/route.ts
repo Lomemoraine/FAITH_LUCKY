@@ -6,12 +6,16 @@ import {
   deleteCounselor,
 } from "@/lib/counseling/service";
 import { verifyCurrentModerator } from "@/lib/moderation/service";
+import { AccessError } from "@/lib/auth/session";
+import { ZodError } from "zod";
 
 export async function GET() {
   try {
-    const counselors = await getVerifiedCounselors();
+    const { isModerator } = await verifyCurrentModerator();
+    const counselors = await getVerifiedCounselors(isModerator);
     return NextResponse.json({ success: true, counselors });
-  } catch {
+  } catch (error) {
+    if (error instanceof AccessError) return NextResponse.json({ success: false, error: error.message }, { status: error.status });
     return NextResponse.json({ success: false, error: "Failed to load counselors." }, { status: 500 });
   }
 }
@@ -51,16 +55,18 @@ export async function POST(req: Request) {
       specialty,
       bio: bio || "Licensed Kenya Board mental health professional offering compassionate guidance.",
       licenseNumber,
-      isLicensed: isLicensed !== false,
+      isLicensed: isLicensed === true,
       showLicenseNumber: Boolean(showLicenseNumber),
       avatarInitials,
-      isOnline: isOnline !== false,
-      rating: Number(rating) || 5.0,
+      isOnline: isOnline === true,
+      rating: Number(rating) || 0,
       sessionsCompleted: Number(sessionsCompleted) || 0,
     });
 
     return NextResponse.json({ success: true, counselor });
   } catch (err) {
+    if (err instanceof ZodError) return NextResponse.json({ success: false, error: "Please check the counselor fields." }, { status: 400 });
+    if (err instanceof AccessError) return NextResponse.json({ success: false, error: err.message }, { status: err.status });
     console.error("[Counselors API] POST error:", err);
     return NextResponse.json({ success: false, error: "Failed to create counselor." }, { status: 500 });
   }
@@ -87,6 +93,8 @@ export async function PUT(req: Request) {
 
     return NextResponse.json({ success: true, counselor: updated });
   } catch (err) {
+    if (err instanceof ZodError) return NextResponse.json({ success: false, error: "Please check the counselor fields." }, { status: 400 });
+    if (err instanceof AccessError) return NextResponse.json({ success: false, error: err.message }, { status: err.status });
     console.error("[Counselors API] PUT error:", err);
     return NextResponse.json({ success: false, error: "Failed to update counselor." }, { status: 500 });
   }
@@ -106,9 +114,10 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ success: false, error: "Counselor ID is required." }, { status: 400 });
     }
 
-    await deleteCounselor(id);
+    if (!await deleteCounselor(id)) return NextResponse.json({ success: false, error: "Counselor not found." }, { status: 404 });
     return NextResponse.json({ success: true, message: "Counselor deleted successfully." });
   } catch (err) {
+    if (err instanceof AccessError) return NextResponse.json({ success: false, error: err.message }, { status: err.status });
     console.error("[Counselors API] DELETE error:", err);
     return NextResponse.json({ success: false, error: "Failed to delete counselor." }, { status: 500 });
   }
