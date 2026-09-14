@@ -21,6 +21,7 @@ export function VoicePlayer({ audioUrl, duration }: VoicePlayerProps) {
     setHasError(false);
     setIsPlaying(false);
     setCurrentTime(0);
+    setTotalDuration(duration || 0);
 
     const audio = new Audio();
     audioRef.current = audio;
@@ -41,7 +42,7 @@ export function VoicePlayer({ audioUrl, duration }: VoicePlayerProps) {
 
     audio.ontimeupdate = () => {
       setCurrentTime(Math.round(audio.currentTime));
-      if ((!totalDuration || totalDuration === 0) && audio.duration && isFinite(audio.duration)) {
+      if (audio.duration && isFinite(audio.duration)) {
         setTotalDuration(Math.round(audio.duration));
       }
     };
@@ -67,7 +68,7 @@ export function VoicePlayer({ audioUrl, duration }: VoicePlayerProps) {
       audio.src = "";
       audioRef.current = null;
     };
-  }, [audioUrl]);
+  }, [audioUrl, duration]);
 
   async function togglePlay() {
     if (!audioRef.current) return;

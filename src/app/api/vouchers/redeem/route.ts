@@ -1,20 +1,18 @@
 import { NextResponse } from "next/server";
 import { validateAndRedeemVoucher } from "@/lib/store/service";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { AccessError, requireActiveProfile } from "@/lib/auth/session";
+import { z } from "zod";
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { code } = body;
+    const profile = await requireActiveProfile();
+    const body = z.object({ code: z.string().trim().min(1).max(80) }).safeParse(await req.json());
 
-    if (!code) {
+    if (!body.success) {
       return NextResponse.json({ success: false, error: "Voucher code is required." }, { status: 400 });
     }
 
-    const supabase = createServerSupabaseClient();
-    const { data: userData } = await supabase.auth.getUser();
-
-    const result = await validateAndRedeemVoucher(code, userData?.user?.id);
+    const result = await validateAndRedeemVoucher(body.data.code, profile.id);
 
     if (!result.success) {
       return NextResponse.json({ success: false, error: result.error }, { status: 400 });
@@ -25,6 +23,7 @@ export async function POST(req: Request) {
       voucher: result.voucher,
     });
   } catch (err) {
+    if (err instanceof AccessError) return NextResponse.json({ success: false, error: err.message }, { status: err.status });
     console.error("[Voucher Redeem API] Error:", err);
     return NextResponse.json({ success: false, error: "Failed to redeem voucher." }, { status: 500 });
   }

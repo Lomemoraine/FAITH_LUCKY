@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sendSMS, sendVoucherSMS } from "@/lib/httpsms";
+import { sendSMS } from "@/lib/httpsms";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 
 interface HttpSmsWebhookPayload {
@@ -79,47 +79,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ received: true, action: "voucher_checked" });
     }
 
-    // 3. M-PESA INCOMING SMS PARSER (Payment confirmation receipt interception)
-    // Matches Safaricom formats: e.g. "QK81XX9999 Confirmed. Ksh500.00 received from 254712345678..." or "Ksh. 500"
-    const mpesaMatch = content.match(/([A-Z0-9]{8,12})\s+Confirmed\.?\s*(?:Ksh|Kshs|KES)?\.?\s*([0-9,]+(?:\.[0-9]{1,2})?)\s+received\s+from\s+([0-9+]+)/i);
-    if (mpesaMatch && supabase) {
-      const receiptCode = mpesaMatch[1];
-      const amount = parseFloat(mpesaMatch[2].replace(/,/g, ""));
-      const rawSender = mpesaMatch[3];
-
-      // Format sender phone
-      const customerPhone = rawSender.startsWith("+") ? rawSender : `+${rawSender}`;
-
-      // Check if there is a pending order for this customer or amount
-      const { data: pendingOrder } = await supabase
-        .from("orders")
-        .select("id, voucher_code, customer_name, amount_kes")
-        .eq("status", "pending")
-        .eq("amount_kes", amount)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (pendingOrder) {
-        await supabase
-          .from("orders")
-          .update({
-            status: "paid",
-            mpesa_receipt_number: receiptCode,
-          })
-          .eq("id", pendingOrder.id);
-
-        // Text the customer their voucher code
-        if (pendingOrder.voucher_code) {
-          await sendVoucherSMS({
-            customerPhone,
-            voucherCode: pendingOrder.voucher_code,
-          });
-        }
-      }
-
-      return NextResponse.json({ received: true, action: "mpesa_processed", receipt: receiptCode });
-    }
+    // Payment completion is handled exclusively by verified Daraja requests.
+    // An incoming text message must never mark an order paid or mint a voucher.
 
     // Fallback default response
     return NextResponse.json({ received: true, action: "none" });

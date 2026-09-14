@@ -1,322 +1,115 @@
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import { createAdminSupabaseClient } from "../supabase/admin";
-import { sendAppointmentReminder } from "../httpsms";
+import { AccessError } from "../auth/session";
 import { Counselor, CounselingSession, CounselingMessage } from "../types";
 
-export const DEFAULT_COUNSELORS: Counselor[] = [
-  {
-    id: "counselor-1",
-    name: "Dr. Faith Mwangi",
-    title: "Licensed Clinical Psychologist",
-    licenseNumber: "KPsyA-4821",
-    isLicensed: true,
-    showLicenseNumber: false,
-    specialty: "Anxiety, Panic & Trauma Support",
-    bio: "Specialized in cognitive behavioral techniques, panic relief, and trauma-informed compassionate listening for youth and young adults.",
-    avatarInitials: "FM",
-    isOnline: true,
-    rating: 4.9,
-    sessionsCompleted: 184,
-  },
-  {
-    id: "counselor-2",
-    name: "David Otieno, MA",
-    title: "Certified Counseling Psychologist",
-    licenseNumber: "KPsyA-3109",
-    isLicensed: true,
-    showLicenseNumber: false,
-    specialty: "Grief, Career Burnout & Stress",
-    bio: "Dedicated to helping individuals navigate acute life transitions, workplace overwhelm, personal loss, and emotional grounding.",
-    avatarInitials: "DO",
-    isOnline: true,
-    rating: 4.8,
-    sessionsCompleted: 142,
-  },
-  {
-    id: "counselor-3",
-    name: "Sarah Chebet, MSc",
-    title: "Family & Wellness Specialist",
-    licenseNumber: "KPsyA-5520",
-    isLicensed: true,
-    showLicenseNumber: false,
-    specialty: "Relationships, Depression & Self-Esteem",
-    bio: "Warm, non-judgmental guidance focused on emotional resilience, healthy relationship boundaries, and self-worth restoration.",
-    avatarInitials: "SC",
-    isOnline: true,
-    rating: 5.0,
-    sessionsCompleted: 210,
-  },
-];
-
-let inMemoryCounselors: Counselor[] = [...DEFAULT_COUNSELORS];
-
-export async function getVerifiedCounselors(): Promise<Counselor[]> {
-  try {
-    const admin = createAdminSupabaseClient();
-    const { data, error } = await admin
-      .from("counselors")
-      .select("*")
-      .order("rating", { ascending: false });
-
-    if (error || !data || data.length === 0) {
-      return inMemoryCounselors;
-    }
-
-    return data.map((c) => ({
-      id: c.id,
-      name: c.name,
-      title: c.title,
-      licenseNumber: c.license_number || "",
-      isLicensed: c.is_licensed !== false,
-      showLicenseNumber: Boolean(c.show_license_number),
-      specialty: c.specialty,
-      bio: c.bio,
-      avatarInitials: c.avatar_initials,
-      isOnline: c.is_online,
-      rating: Number(c.rating) || 5.0,
-      sessionsCompleted: c.sessions_completed || 0,
-    }));
-  } catch {
-    return inMemoryCounselors;
-  }
+const counselorInput = z.object({
+  name: z.string().trim().min(1).max(120), title: z.string().trim().min(1).max(150),
+  specialty: z.string().trim().min(1).max(250), bio: z.string().trim().min(1).max(3000),
+  licenseNumber: z.string().trim().max(100).default(""),
+  isLicensed: z.boolean().default(false), showLicenseNumber: z.boolean().default(false),
+  avatarInitials: z.string().trim().max(5).optional(), isOnline: z.boolean().default(false),
+  rating: z.number().min(0).max(5).default(0), sessionsCompleted: z.number().int().min(0).default(0),
+});
+type CounselorInput = z.input<typeof counselorInput>;
+interface CounselorRow {
+  id: string; name: string; title: string; specialty: string; bio: string;
+  license_number: string; is_licensed: boolean; show_license_number: boolean;
+  avatar_initials: string; is_online: boolean; rating: number; sessions_completed: number;
+}
+function mapCounselor(row: CounselorRow): Counselor {
+  return { id: row.id, name: row.name, title: row.title, specialty: row.specialty, bio: row.bio,
+    licenseNumber: row.license_number, isLicensed: row.is_licensed === true, showLicenseNumber: row.show_license_number === true,
+    avatarInitials: row.avatar_initials, isOnline: row.is_online === true, rating: Number(row.rating), sessionsCompleted: row.sessions_completed };
+}
+function counselorPayload(input: CounselorInput) {
+  const value = counselorInput.parse(input);
+  if (value.isLicensed && !value.licenseNumber) throw new AccessError("A license number is required for a verified counselor.", 400);
+  return { name: value.name, title: value.title, specialty: value.specialty, bio: value.bio,
+    license_number: value.licenseNumber, is_licensed: value.isLicensed, show_license_number: value.showLicenseNumber,
+    avatar_initials: value.avatarInitials || value.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(),
+    is_online: value.isOnline, rating: value.rating, sessions_completed: value.sessionsCompleted };
 }
 
-export async function createCounselor(input: {
-  name: string;
-  title: string;
-  specialty: string;
-  bio: string;
-  licenseNumber?: string;
-  isLicensed?: boolean;
-  showLicenseNumber?: boolean;
-  avatarInitials?: string;
-  isOnline?: boolean;
-  rating?: number;
-  sessionsCompleted?: number;
-}): Promise<Counselor> {
-  const initials =
-    input.avatarInitials?.trim() ||
-    input.name
-      .split(" ")
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0].toUpperCase())
-      .join("") ||
-    "CN";
-
-  const id = `counselor-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 5)}`;
-
-  const newCounselor: Counselor = {
-    id,
-    name: input.name.trim(),
-    title: input.title.trim(),
-    licenseNumber: input.licenseNumber?.trim() || "",
-    isLicensed: input.isLicensed !== false,
-    showLicenseNumber: Boolean(input.showLicenseNumber),
-    specialty: input.specialty.trim(),
-    bio: input.bio.trim(),
-    avatarInitials: initials,
-    isOnline: input.isOnline !== false,
-    rating: Number(input.rating) || 5.0,
-    sessionsCompleted: Number(input.sessionsCompleted) || 0,
-  };
-
-  inMemoryCounselors = [newCounselor, ...inMemoryCounselors];
-
-  try {
-    const admin = createAdminSupabaseClient();
-    await admin.from("counselors").insert({
-      id: newCounselor.id,
-      name: newCounselor.name,
-      title: newCounselor.title,
-      license_number: newCounselor.licenseNumber,
-      specialty: newCounselor.specialty,
-      bio: newCounselor.bio,
-      avatar_initials: newCounselor.avatarInitials,
-      is_online: newCounselor.isOnline,
-      rating: newCounselor.rating,
-      sessions_completed: newCounselor.sessionsCompleted,
-    });
-  } catch (err) {
-    console.warn("[Counselor] Database save warning (stored in-memory):", err);
+export async function getVerifiedCounselors(includeUnverified = false): Promise<Counselor[]> {
+  let query = createAdminSupabaseClient().from("counselors").select("*").order("name");
+  if (!includeUnverified) query = query.eq("is_licensed", true).not("auth_user_id", "is", null);
+  const { data, error } = await query;
+  if (error) {
+    if (["42703", "42P01", "PGRST204", "PGRST205"].includes(error.code)) {
+      throw new AccessError("Counselor database setup is incomplete. The site administrator needs to apply the latest counseling migration.", 503);
+    }
+    throw new AccessError("Counselors are temporarily unavailable.", 503);
   }
-
-  return newCounselor;
+  return (data || []).map((row) => mapCounselor(row));
 }
 
-export async function updateCounselor(
-  id: string,
-  updates: Partial<Counselor>
-): Promise<Counselor | null> {
-  const existingIdx = inMemoryCounselors.findIndex((c) => c.id === id);
-  if (existingIdx !== -1) {
-    inMemoryCounselors[existingIdx] = {
-      ...inMemoryCounselors[existingIdx],
-      ...updates,
-    };
-  }
+export async function createCounselor(input: CounselorInput): Promise<Counselor> {
+  const { data, error } = await createAdminSupabaseClient().from("counselors")
+    .insert({ id: randomUUID(), ...counselorPayload(input) }).select("*").single();
+  if (error || !data) throw new AccessError("Counselor could not be saved.", 503);
+  return mapCounselor(data);
+}
 
-  try {
-    const admin = createAdminSupabaseClient();
-    const dbPayload: Record<string, unknown> = {};
-    if (updates.name !== undefined) dbPayload.name = updates.name;
-    if (updates.title !== undefined) dbPayload.title = updates.title;
-    if (updates.licenseNumber !== undefined) dbPayload.license_number = updates.licenseNumber;
-    if (updates.specialty !== undefined) dbPayload.specialty = updates.specialty;
-    if (updates.bio !== undefined) dbPayload.bio = updates.bio;
-    if (updates.avatarInitials !== undefined) dbPayload.avatar_initials = updates.avatarInitials;
-    if (updates.isOnline !== undefined) dbPayload.is_online = updates.isOnline;
-    if (updates.rating !== undefined) dbPayload.rating = updates.rating;
-    if (updates.sessionsCompleted !== undefined) dbPayload.sessions_completed = updates.sessionsCompleted;
-
-    if (Object.keys(dbPayload).length > 0) {
-      await admin.from("counselors").update(dbPayload).eq("id", id);
-    }
-  } catch (err) {
-    console.warn("[Counselor] Database update warning:", err);
-  }
-
-  const all = await getVerifiedCounselors();
-  return all.find((c) => c.id === id) || (existingIdx !== -1 ? inMemoryCounselors[existingIdx] : null);
+export async function updateCounselor(id: string, updates: Partial<Counselor>): Promise<Counselor | null> {
+  const admin = createAdminSupabaseClient();
+  const { data: existing, error: readError } = await admin.from("counselors").select("*").eq("id", id).maybeSingle();
+  if (readError) throw new AccessError("Counselor could not be loaded.", 503);
+  if (!existing) return null;
+  const { data, error } = await admin.from("counselors")
+    .update(counselorPayload({ ...mapCounselor(existing), ...updates })).eq("id", id).select("*").single();
+  if (error || !data) throw new AccessError("Counselor changes could not be saved.", 503);
+  return mapCounselor(data);
 }
 
 export async function deleteCounselor(id: string): Promise<boolean> {
-  inMemoryCounselors = inMemoryCounselors.filter((c) => c.id !== id);
+  const { data, error } = await createAdminSupabaseClient().from("counselors").delete().eq("id", id).select("id");
+  if (error) throw new AccessError("Counselor could not be deleted. Existing consultations may still reference this counselor.", 409);
+  return Boolean(data?.length);
+}
 
-  try {
-    const admin = createAdminSupabaseClient();
-    await admin.from("counselors").delete().eq("id", id);
-    return true;
-  } catch (err) {
-    console.warn("[Counselor] Database delete warning:", err);
-    return true;
-  }
+interface MessageRow { id: string; session_id: string; sender_role: CounselingMessage["senderRole"]; content: string; created_at: string }
+function mapMessage(row: MessageRow): CounselingMessage {
+  return { id: row.id, sessionId: row.session_id, senderRole: row.sender_role, content: row.content, createdAt: row.created_at };
+}
+
+export async function getCounselingMessages(sessionId: string): Promise<CounselingMessage[]> {
+  const { data, error } = await createAdminSupabaseClient().from("counseling_messages")
+    .select("id,session_id,sender_role,content,created_at").eq("session_id", sessionId)
+    .order("created_at").order("id");
+  if (error) throw new AccessError("Messages could not be loaded.", 503);
+  return (data || []).map(mapMessage);
 }
 
 export async function createOrGetCounselingSession(params: {
-  clientId: string;
-  counselorId: string;
-  voucherId?: string | null;
-  primaryConcern?: string;
-  intakeMood?: string;
-  clientPhone?: string;
+  clientId: string; counselorId: string; voucherId?: string | null;
+  primaryConcern?: string; intakeMood?: string; clientPhone?: string;
 }): Promise<CounselingSession> {
-  const allCounselors = await getVerifiedCounselors();
-  const counselor =
-    allCounselors.find((c) => c.id === params.counselorId) ||
-    DEFAULT_COUNSELORS.find((c) => c.id === params.counselorId) ||
-    DEFAULT_COUNSELORS[0];
-
-  const sessionId = `sess-${Date.now()}`;
-  const now = new Date().toISOString();
-
-  if (params.clientPhone) {
-    sendAppointmentReminder({
-      userPhone: params.clientPhone,
-      counselorName: counselor.name,
-      sessionTime: "Today (Live Confidential Session)",
-    }).catch((err) => console.error("[Counseling] Failed to send reminder SMS:", err));
+  const admin = createAdminSupabaseClient();
+  // Ownership, quota consumption, and retry deduplication are one database transaction.
+  const { data: session, error } = await admin.rpc("start_counseling_session", {
+    p_client_id: params.clientId, p_counselor_id: params.counselorId, p_voucher_id: params.voucherId,
+    p_primary_concern: params.primaryConcern || "Emotional support", p_intake_mood: params.intakeMood || "neutral",
+  });
+  if (error || !session) {
+    if (error?.code === "P0001") throw new AccessError("This Care Pass has no sessions available, or the counselor is unavailable.", 409);
+    throw new AccessError("Consultation could not be saved. Please try again.", 503);
   }
-
-  const initialMessages: CounselingMessage[] = [
-    {
-      id: `msg-${Date.now()}-1`,
-      sessionId,
-      senderRole: "system",
-      content: `🔒 SafeSpace Private Consultation initiated with ${counselor.name}. Everything shared in this room is 100% confidential and anonymous.`,
-      createdAt: now,
-    },
-    {
-      id: `msg-${Date.now()}-2`,
-      sessionId,
-      senderRole: "counselor",
-      content: `Hello! I'm ${counselor.name}. Thank you for reaching out today. I am here to listen without judgment. Whenever you feel ready, tell me a little about what has been on your mind lately.`,
-      createdAt: new Date(Date.now() + 1000).toISOString(),
-    },
-  ];
-
-  try {
-    const admin = createAdminSupabaseClient();
-    const { data: sessionData } = await admin
-      .from("counseling_sessions")
-      .insert({
-        client_id: params.clientId,
-        counselor_id: counselor.id,
-        voucher_id: params.voucherId || null,
-        primary_concern: params.primaryConcern || "Emotional Support",
-        intake_mood: params.intakeMood || "neutral",
-        status: "active",
-      })
-      .select()
-      .single();
-
-    if (sessionData) {
-      await admin.from("counseling_messages").insert([
-        {
-          session_id: sessionData.id,
-          sender_role: "system",
-          content: `🔒 SafeSpace Private Consultation initiated with ${counselor.name}. Everything shared in this room is 100% confidential and anonymous.`,
-        },
-        {
-          session_id: sessionData.id,
-          sender_role: "counselor",
-          content: `Hello! I'm ${counselor.name}. Thank you for reaching out today. I am here to listen without judgment. Whenever you feel ready, tell me a little about what has been on your mind lately.`,
-        },
-      ]);
-
-      return {
-        id: sessionData.id,
-        clientId: sessionData.client_id,
-        counselorId: sessionData.counselor_id,
-        counselor,
-        voucherId: sessionData.voucher_id,
-        status: "active",
-        primaryConcern: sessionData.primary_concern,
-        intakeMood: sessionData.intake_mood,
-        createdAt: sessionData.created_at,
-        messages: initialMessages,
-      };
-    }
-  } catch (err) {
-    console.warn("[Counseling] Supabase session error (falling back to memory session):", err);
-  }
-
-  return {
-    id: sessionId,
-    clientId: params.clientId,
-    counselorId: counselor.id,
-    counselor,
-    voucherId: params.voucherId || null,
-    status: "active",
-    primaryConcern: params.primaryConcern,
-    intakeMood: params.intakeMood,
-    createdAt: now,
-    messages: initialMessages,
-  };
+  const { data: counselor, error: counselorError } = await admin.from("counselors").select("*").eq("id", session.counselor_id).single();
+  if (counselorError || !counselor) throw new AccessError("Counselor could not be loaded.", 503);
+  return { id: session.id, clientId: session.client_id, counselorId: session.counselor_id,
+    counselor: mapCounselor(counselor), voucherId: session.voucher_id, status: session.status,
+    primaryConcern: session.primary_concern, intakeMood: session.intake_mood, createdAt: session.created_at,
+    messages: await getCounselingMessages(session.id) };
 }
 
 export async function sendCounselingMessage(params: {
-  sessionId: string;
-  senderRole: "client" | "counselor";
-  content: string;
+  sessionId: string; senderRole: "client" | "counselor"; content: string;
 }): Promise<CounselingMessage> {
-  const message: CounselingMessage = {
-    id: `msg-${Date.now()}`,
-    sessionId: params.sessionId,
-    senderRole: params.senderRole,
-    content: params.content,
-    createdAt: new Date().toISOString(),
-  };
-
-  try {
-    const admin = createAdminSupabaseClient();
-    await admin.from("counseling_messages").insert({
-      session_id: params.sessionId,
-      sender_role: params.senderRole,
-      content: params.content,
-    });
-  } catch (err) {
-    console.warn("[Counseling] Save message warning:", err);
-  }
-
-  return message;
+  const { data, error } = await createAdminSupabaseClient().from("counseling_messages")
+    .insert({ session_id: params.sessionId, sender_role: params.senderRole, content: params.content })
+    .select("id,session_id,sender_role,content,created_at").single();
+  if (error || !data) throw new AccessError("Message could not be saved.", 503);
+  return mapMessage(data);
 }

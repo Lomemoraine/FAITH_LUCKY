@@ -11,6 +11,8 @@ export function middleware(request: NextRequest) {
 
   // Bypass public static assets and auth callback routes
   const { pathname } = request.nextUrl;
+  // These exact routes have independent callback-token / CRON_SECRET checks.
+  if (pathname === "/api/mpesa/callback" || pathname === "/api/mpesa/reconcile") return NextResponse.next();
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon.ico") ||

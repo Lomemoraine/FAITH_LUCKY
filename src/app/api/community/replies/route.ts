@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { AccessError } from "@/lib/auth/session";
 import { createReplyAction, deleteReplyAction } from "@/lib/community/service";
 
 export async function POST(req: Request) {
@@ -10,11 +11,12 @@ export async function POST(req: Request) {
     });
 
     if (!result.success) {
-      return NextResponse.json({ success: false, error: result.error }, { status: 400 });
+      return NextResponse.json(result, { status: 400 });
     }
 
     return NextResponse.json(result);
   } catch (err) {
+    if (err instanceof AccessError) return NextResponse.json({ success: false, error: err.message }, { status: err.status });
     console.error("[API/Replies] POST Error:", err);
     return NextResponse.json({ success: false, error: "Failed to create reply" }, { status: 500 });
   }
@@ -34,7 +36,8 @@ export async function DELETE(req: Request) {
     }
 
     return NextResponse.json({ success: true });
-  } catch {
+  } catch (err) {
+    if (err instanceof AccessError) return NextResponse.json({ success: false, error: err.message }, { status: err.status });
     return NextResponse.json({ success: false, error: "Failed to delete reply" }, { status: 500 });
   }
 }

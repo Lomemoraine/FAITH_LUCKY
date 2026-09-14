@@ -1,259 +1,80 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
-import { generateAnonymousHandle, getRandomAvatarId } from "@/lib/identity/pseudonym";
+import { generateAnonymousHandle, getRandomAvatarId, AVATAR_OPTIONS } from "@/lib/identity/pseudonym";
+import { AccessError, requireActiveProfile } from "@/lib/auth/session";
+import { checkRateLimit } from "@/lib/ratelimit/limiter";
 
-export async function POST() {
+const fields = "public_id,anonymous_handle,avatar_id,status";
+function publicProfile(profile: { public_id: string; anonymous_handle: string; avatar_id: string }) {
+  return { public_id: profile.public_id, anonymous_handle: profile.anonymous_handle, avatar_id: profile.avatar_id };
+}
+
+export async function POST(request: Request) {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-    const isRealSupabase =
-      Boolean(supabaseUrl) &&
-      !supabaseUrl.includes("placeholder") &&
-      !supabaseUrl.includes("your-project.supabase.co");
-
-    // 1. If real Supabase is configured, try Supabase anonymous auth
-    if (isRealSupabase) {
-      try {
-        const supabase = createServerSupabaseClient();
-        const { data: userData } = await supabase.auth.getUser();
-
-        if (userData?.user) {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("public_id, anonymous_handle, avatar_id, status")
-            .eq("id", userData.user.id)
-            .maybeSingle();
-
-          if (profile) {
-            return NextResponse.json({
-              success: true,
-              profile: {
-                public_id: profile.public_id,
-                anonymous_handle: profile.anonymous_handle,
-                avatar_id: profile.avatar_id,
-              },
-            });
-          }
-        }
-
-        const { data: authData, error: authError } = await supabase.auth.signInAnonymously();
-        if (!authError && authData.user) {
-          const userId = authData.user.id;
-          const handle = generateAnonymousHandle();
-          const avatarId = getRandomAvatarId();
-
-          const admin = createAdminSupabaseClient();
-          const { data: profileData } = await admin
-            .from("profiles")
-            .insert({
-              id: userId,
-              anonymous_handle: handle,
-              avatar_id: avatarId,
-              status: "active",
-            })
-            .select("public_id, anonymous_handle, avatar_id")
-            .single();
-
-          if (profileData) {
-            const response = NextResponse.json({
-              success: true,
-              profile: profileData,
-            });
-
-            response.cookies.set(
-              "tfl_anon_profile",
-              JSON.stringify({
-                id: userId,
-                public_id: profileData.public_id,
-                anonymous_handle: profileData.anonymous_handle,
-                avatar_id: profileData.avatar_id,
-              }),
-              { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 365 }
-            );
-
-            return response;
-          }
-        }
-      } catch (sbErr) {
-        console.warn("[Auth] Supabase anonymous auth warning, using resilient cookie profile:", sbErr);
-      }
+    const supabase = createServerSupabaseClient();
+    const { data } = await supabase.auth.getUser();
+    let user = data.user;
+    if (!user) {
+      const limit = await checkRateLimit(request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown", "create_account");
+      if (!limit.allowed) return NextResponse.json({ success: false, error: limit.message }, { status: 429 });
+      const { data: signedIn, error } = await supabase.auth.signInAnonymously();
+      if (error || !signedIn.user) throw new AccessError("Anonymous sign-in is unavailable. Please try again shortly.", 503);
+      user = signedIn.user;
     }
-
-    // 2. Resilient Fallback: Create anonymous device-bound profile session
-    const { cookies } = await import("next/headers");
-    const cookieStore = cookies();
-    const existingCookie = cookieStore.get("tfl_anon_profile")?.value;
-
-    if (existingCookie) {
-      try {
-        const parsed = JSON.parse(existingCookie);
-        if (parsed.anonymous_handle && parsed.public_id) {
-          return NextResponse.json({
-            success: true,
-            profile: {
-              public_id: parsed.public_id,
-              anonymous_handle: parsed.anonymous_handle,
-              avatar_id: parsed.avatar_id || "lotus",
-            },
-          });
-        }
-      } catch {
-        // Continue to fresh profile
-      }
+    const admin = createAdminSupabaseClient();
+    const { data: existing, error: readError } = await admin.from("profiles").select(fields).eq("id", user.id).maybeSingle();
+    if (readError) throw readError;
+    if (existing) {
+      if (existing.status !== "active") throw new AccessError("This profile is not active.", 403);
+      return NextResponse.json({ success: true, profile: publicProfile(existing) });
     }
-
-    const uniqueId = `anon_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
-    const publicId = `usr_${Math.random().toString(36).substring(2, 10)}`;
-    const handle = generateAnonymousHandle();
-    const avatarId = getRandomAvatarId();
-
-    const newProfile = {
-      id: uniqueId,
-      public_id: publicId,
-      anonymous_handle: handle,
-      avatar_id: avatarId,
-    };
-
-    const response = NextResponse.json({
-      success: true,
-      profile: {
-        public_id: newProfile.public_id,
-        anonymous_handle: newProfile.anonymous_handle,
-        avatar_id: newProfile.avatar_id,
-      },
-    });
-
-    response.cookies.set("tfl_anon_profile", JSON.stringify(newProfile), {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 365, // 1 year
-    });
-
-    return response;
-  } catch (err) {
-    console.error("[Auth] Anonymous route exception:", err);
-    return NextResponse.json({ success: false, error: "Internal server error." }, { status: 500 });
+    // Retry handle collisions without replacing an existing identity.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { data: profile, error } = await admin.from("profiles").insert({
+        id: user.id, anonymous_handle: generateAnonymousHandle(), avatar_id: getRandomAvatarId(), status: "active",
+      }).select(fields).single();
+      if (!error && profile) return NextResponse.json({ success: true, profile: publicProfile(profile) });
+      if (error?.code !== "23505") throw error;
+      const { data: raced } = await admin.from("profiles").select(fields).eq("id", user.id).maybeSingle();
+      if (raced?.status === "active") return NextResponse.json({ success: true, profile: publicProfile(raced) });
+    }
+    throw new AccessError("Unable to create a profile. Please retry.", 503);
+  } catch (error) {
+    return NextResponse.json({ success: false, error: error instanceof AccessError ? error.message : "Unable to save your anonymous profile." },
+      { status: error instanceof AccessError ? error.status : 503 });
   }
 }
 
 export async function GET() {
   try {
-    const { cookies } = await import("next/headers");
-    const cookieStore = cookies();
-    const existingCookie = cookieStore.get("tfl_anon_profile")?.value;
-
-    if (existingCookie) {
-      try {
-        const parsed = JSON.parse(existingCookie);
-        if (parsed.anonymous_handle && parsed.public_id) {
-          return NextResponse.json({
-            authenticated: true,
-            profile: {
-              public_id: parsed.public_id,
-              anonymous_handle: parsed.anonymous_handle,
-              avatar_id: parsed.avatar_id || "lotus",
-            },
-          });
-        }
-      } catch {
-        // Fall through
-      }
-    }
-
-    const supabase = createServerSupabaseClient();
-    const { data: userData } = await supabase.auth.getUser();
-
-    if (!userData?.user) {
-      return NextResponse.json({ authenticated: false });
-    }
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("public_id, anonymous_handle, avatar_id, status")
-      .eq("id", userData.user.id)
-      .maybeSingle();
-
-    if (!profile || profile.status === "suspended") {
-      return NextResponse.json({ authenticated: true, isSuspended: profile?.status === "suspended" });
-    }
-
-    return NextResponse.json({
-      authenticated: true,
-      profile: {
-        public_id: profile.public_id,
-        anonymous_handle: profile.anonymous_handle,
-        avatar_id: profile.avatar_id,
-      },
-    });
-  } catch {
-    return NextResponse.json({ authenticated: false });
+    const profile = await requireActiveProfile();
+    return NextResponse.json({ authenticated: true, profile: publicProfile(profile) }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    if (error instanceof AccessError && error.status === 401) return NextResponse.json({ authenticated: false });
+    return NextResponse.json({ authenticated: false, error: "Unable to load an active profile." },
+      { status: error instanceof AccessError ? error.status : 503 });
   }
 }
 
-export async function PATCH(req: Request) {
+export async function PATCH(request: Request) {
   try {
-    const body = await req.json();
-    const rawHandle = (body.anonymous_handle || "").trim().replace(/^@+/, "");
-    const avatarId = body.avatar_id ? String(body.avatar_id).trim() : undefined;
-
-    if (!rawHandle || rawHandle.length < 3 || rawHandle.length > 30) {
-      return NextResponse.json(
-        { success: false, error: "Handle must be between 3 and 30 characters." },
-        { status: 400 }
-      );
-    }
-
-    if (!/^[a-zA-Z0-9_-]+$/.test(rawHandle)) {
-      return NextResponse.json(
-        { success: false, error: "Handle can only contain letters, numbers, underscores, and dashes." },
-        { status: 400 }
-      );
-    }
-
-    const { cookies } = await import("next/headers");
-    const cookieStore = cookies();
-    const existingCookie = cookieStore.get("tfl_anon_profile")?.value;
-
-    let currentProfile = {
-      id: `anon_${Date.now().toString(36)}`,
-      public_id: `usr_${Date.now().toString(36)}`,
-      anonymous_handle: rawHandle,
-      avatar_id: avatarId || "lotus",
-    };
-
-    if (existingCookie) {
-      try {
-        const parsed = JSON.parse(existingCookie);
-        currentProfile = {
-          ...parsed,
-          anonymous_handle: rawHandle,
-          avatar_id: avatarId || parsed.avatar_id || "lotus",
-        };
-      } catch {
-        // Use fresh profile
-      }
-    }
-
-    const response = NextResponse.json({
-      success: true,
-      profile: {
-        public_id: currentProfile.public_id,
-        anonymous_handle: currentProfile.anonymous_handle,
-        avatar_id: currentProfile.avatar_id,
-      },
-    });
-
-    response.cookies.set("tfl_anon_profile", JSON.stringify(currentProfile), {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 365,
-    });
-
+    const profile = await requireActiveProfile();
+    const parsed = z.object({
+      anonymous_handle: z.string().trim().transform((value) => value.replace(/^@+/, "")).pipe(z.string().min(3).max(30).regex(/^[a-zA-Z0-9_-]+$/)),
+      avatar_id: z.string().refine((value) => AVATAR_OPTIONS.some((avatar) => avatar.id === value)).optional(),
+    }).safeParse(await request.json());
+    if (!parsed.success) throw new AccessError("Choose a valid avatar and a 3–30 character handle using letters, numbers, dashes or underscores.", 400);
+    const { data, error } = await createAdminSupabaseClient().from("profiles")
+      .update(parsed.data).eq("id", profile.id).eq("status", "active").select(fields).single();
+    if (error?.code === "23505") throw new AccessError("That handle is already taken.", 409);
+    if (error || !data) throw new AccessError("Your profile could not be saved. Please retry.", 503);
+    const response = NextResponse.json({ success: true, profile: publicProfile(data) });
+    response.cookies.delete("tfl_anon_profile");
     return response;
-  } catch (err) {
-    console.error("[Auth] Handle update exception:", err);
-    return NextResponse.json({ success: false, error: "Internal server error." }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json({ success: false, error: error instanceof AccessError ? error.message : "Unable to update profile." },
+      { status: error instanceof AccessError ? error.status : 400 });
   }
 }

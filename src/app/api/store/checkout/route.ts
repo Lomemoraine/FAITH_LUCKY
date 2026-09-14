@@ -1,38 +1,13 @@
 import { NextResponse } from "next/server";
-import { processMpesaCheckout } from "@/lib/store/service";
+import { requireActiveProfile } from "@/lib/auth/session";
+import { startPayment } from "@/lib/mpesa/payments";
+import { paymentErrorResponse } from "@/lib/mpesa/http";
 
-export async function POST(req: Request) {
+export const maxDuration = 60;
+export async function POST(request: Request) {
   try {
-    const body = await req.json();
-    const { productId, phoneNumber, shippingAddress } = body;
-
-    if (!productId || !phoneNumber) {
-      return NextResponse.json(
-        { success: false, error: "Product ID and Phone Number are required." },
-        { status: 400 }
-      );
-    }
-
-    const result = await processMpesaCheckout({
-      productId,
-      phoneNumber,
-      shippingAddress,
-    });
-
-    if (!result.success) {
-      return NextResponse.json({ success: false, error: result.error }, { status: 400 });
-    }
-
-    return NextResponse.json({
-      success: true,
-      order: result.order,
-      voucher: result.voucher,
-    });
-  } catch (err) {
-    console.error("[Store Checkout API] Error:", err);
-    return NextResponse.json(
-      { success: false, error: "Internal server error processing checkout." },
-      { status: 500 }
-    );
-  }
+    const profile = await requireActiveProfile();
+    const result = await startPayment(await request.json(), profile.id);
+    return NextResponse.json(result, { status: result.order.paymentStatus === "pending" ? 202 : 200, headers: { "Cache-Control": "no-store" } });
+  } catch (error) { return paymentErrorResponse(error); }
 }
