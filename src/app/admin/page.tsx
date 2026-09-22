@@ -652,19 +652,22 @@ export default function AdminPortal() {
               <button
                 type="submit"
                 disabled={isSubmittingAuth}
-                className="w-full py-3.5 rounded-xl bg-rose-500 hover:bg-rose-600 disabled:opacity-60 text-white font-bold text-sm transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2 mt-2"
+                className="w-full py-4 px-6 rounded-2xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 disabled:opacity-60 text-white font-extrabold text-sm transition-all shadow-md hover:shadow-xl flex items-center justify-center gap-2.5 mt-4 cursor-pointer"
               >
                 {isSubmittingAuth ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                    <span>Signing in...</span>
+                  </>
                 ) : authMode === "password" ? (
                   <>
-                    <KeyRound className="w-4 h-4" />
-                    <span>Sign In to Admin</span>
+                    <KeyRound className="w-4 h-4 text-white" />
+                    <span>Sign In to Admin Portal</span>
                   </>
                 ) : (
                   <>
-                    <Mail className="w-4 h-4" />
-                    <span>Send Email Magic Link</span>
+                    <Mail className="w-4 h-4 text-white" />
+                    <span>Send Magic Link to Email</span>
                   </>
                 )}
               </button>

@@ -44,5 +44,19 @@ export function parseCallback(payload: unknown) {
 }
 export type PaymentCallback = ReturnType<typeof parseCallback>;
 
-export const checkoutInput = z.object({ productId: z.string().min(1).max(100),
-  phoneNumber: z.string().max(30), shippingAddress: z.string().trim().max(500).optional(), idempotencyKey: z.uuid() });
+export const checkoutItemSchema = z.object({
+  productId: z.string().min(1).max(100),
+  quantity: z.number().int().min(1).max(100),
+});
+
+export const checkoutInput = z.object({
+  productId: z.string().min(1).max(100).optional(),
+  quantity: z.number().int().min(1).max(100).optional(),
+  items: z.array(checkoutItemSchema).min(1).max(50).optional(),
+  phoneNumber: z.string().max(30),
+  shippingAddress: z.string().trim().max(500).optional(),
+  idempotencyKey: z.string().uuid(),
+}).refine((data) => Boolean(data.productId || (data.items && data.items.length > 0)), {
+  message: "At least one product item is required for checkout.",
+});
+
