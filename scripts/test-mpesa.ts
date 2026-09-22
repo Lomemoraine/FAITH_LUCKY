@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { normalizePhone, parseCallback, paymentPassword, PaymentError } from "../src/lib/mpesa/contracts";
+import { normalizePhone, parseCallback, paymentPassword, PaymentError, checkoutInput } from "../src/lib/mpesa/contracts";
 import { getMpesaConfig, initiateStk, queryStk } from "../src/lib/mpesa/daraja";
 
 async function main() {
@@ -8,6 +8,40 @@ async function main() {
   for (const phone of ["", "12345", "25479999999999", "phone", "++254712345678"]) {
     assert.throws(() => normalizePhone(phone));
   }
+
+  // Multi-item cart schema tests
+  const singleItemParsed = checkoutInput.parse({
+    productId: "hoodie-rose",
+    quantity: 2,
+    phoneNumber: "0712345678",
+    shippingAddress: "Nairobi West",
+    idempotencyKey: "123e4567-e89b-12d3-a456-426614174000",
+  });
+  assert.equal(singleItemParsed.productId, "hoodie-rose");
+  assert.equal(singleItemParsed.quantity, 2);
+
+  const multiItemParsed = checkoutInput.parse({
+    items: [
+      { productId: "hoodie-rose", quantity: 1 },
+      { productId: "bracelet-serenity", quantity: 6 },
+    ],
+    phoneNumber: "0712345678",
+    shippingAddress: "Kilimani, Nairobi",
+    idempotencyKey: "123e4567-e89b-12d3-a456-426614174000",
+  });
+  assert.equal(multiItemParsed.items?.length, 2);
+  assert.equal(multiItemParsed.items?.[1].quantity, 6);
+
+  // Rejection of empty items
+  assert.throws(() => checkoutInput.parse({
+    phoneNumber: "0712345678",
+    idempotencyKey: "123e4567-e89b-12d3-a456-426614174000",
+  }));
+  assert.throws(() => checkoutInput.parse({
+    items: [],
+    phoneNumber: "0712345678",
+    idempotencyKey: "123e4567-e89b-12d3-a456-426614174000",
+  }));
   assert.equal(Buffer.from(paymentPassword("174379", "test-pass", "20260912120000"), "base64").toString(), "174379test-pass20260912120000");
   const payload = { Body: { stkCallback: { MerchantRequestID: "merchant-1", CheckoutRequestID: "checkout-1", ResultCode: 0,
     CallbackMetadata: { Item: [{ Name: "Amount", Value: 500 }, { Name: "MpesaReceiptNumber", Value: "TEST123456" }, { Name: "PhoneNumber", Value: 254712345678 }] } } } };

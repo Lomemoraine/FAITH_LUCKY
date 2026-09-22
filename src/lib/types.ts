@@ -109,6 +109,16 @@ export interface StoreProduct {
   inStock?: boolean;
 }
 
+export interface CartItem {
+  product: StoreProduct;
+  quantity: number;
+}
+
+export interface CartItemInput {
+  productId: string;
+  quantity: number;
+}
+
 export interface CareVoucher {
   id: string;
   code: string;

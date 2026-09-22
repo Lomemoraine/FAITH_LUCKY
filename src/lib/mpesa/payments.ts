@@ -5,6 +5,7 @@ import { checkRateLimit } from "../ratelimit/limiter";
 import { CareVoucher, StoreOrder } from "../types";
 import { checkoutInput, normalizePhone, parseCallback, PaymentCallback, PaymentError } from "./contracts";
 import { getMpesaConfig, initiateStk, queryStk } from "./daraja";
+import { getStoreProducts } from "../store/service";
 
 interface PaymentOrder {
   id: string; buyer_id: string; order_number: string; product_id: string; item_name: string;
@@ -116,18 +117,118 @@ export async function startPayment(input: unknown, buyerId: string): Promise<Pay
   const config = getMpesaConfig();
   const rate = await checkRateLimit(buyerId, "payment_checkout");
   if (!rate.allowed) throw new PaymentError(rate.message || "Too many payment attempts. Please wait.", rate.retryAfterSeconds ? 429 : 503);
+
+  // Parse item lines
+  const rawItems = parsed.items && parsed.items.length > 0
+    ? parsed.items
+    : [{ productId: parsed.productId!, quantity: parsed.quantity || 1 }];
+
+  const quantityMap = new Map<string, number>();
+  for (const it of rawItems) {
+    if (it.quantity > 0) {
+      quantityMap.set(it.productId, (quantityMap.get(it.productId) || 0) + it.quantity);
+    }
+  }
+
+  if (quantityMap.size === 0) {
+    throw new PaymentError("Your cart is empty. Please select an item to continue.", 400, true);
+  }
+
+  const allProducts = await getStoreProducts(true);
+  const productMap = new Map(allProducts.map((p) => [p.id, p]));
+
+  let totalAmountKes = 0;
+  let totalTherapySessions = 0;
+  let hasPhysical = false;
+  const itemDescriptions: string[] = [];
+
+  for (const [pId, qty] of Array.from(quantityMap.entries())) {
+    const prod = productMap.get(pId);
+    if (!prod || prod.inStock === false) {
+      throw new PaymentError("One or more items in your cart are currently unavailable.", 400, true);
+    }
+    if (prod.priceKes <= 0) {
+      throw new PaymentError(`Invalid price for product ${prod.name}`, 400, true);
+    }
+    totalAmountKes += prod.priceKes * qty;
+    totalTherapySessions += (prod.therapySessionsCount || 1) * qty;
+    if (prod.category !== "service") {
+      hasPhysical = true;
+    }
+    itemDescriptions.push(qty > 1 ? `${qty}x ${prod.name}` : prod.name);
+  }
+
+  const shipping = parsed.shippingAddress?.trim() || "";
+  if (hasPhysical && shipping.length < 5) {
+    throw new PaymentError("Please enter a valid delivery location (at least 5 characters).", 400, true);
+  }
+
+  const itemNameSummary = itemDescriptions.join(", ");
+  const carePerkSummary = totalTherapySessions === 1
+    ? "Unlocks 1 Private 1-on-1 Counseling Session"
+    : `Unlocks ${totalTherapySessions} Private 1-on-1 Counseling Sessions`;
+
   const token = randomBytes(32).toString("hex");
   const admin = createAdminSupabaseClient();
-  const { data, error } = await admin.rpc("prepare_mpesa_order", {
-    p_buyer_id: buyerId, p_idempotency_key: parsed.idempotencyKey, p_product_id: parsed.productId,
-    p_phone: phone, p_shipping: parsed.shippingAddress || "", p_environment: config.environment,
-    p_shortcode: config.shortcode, p_party_b: config.partyB, p_transaction_type: config.transactionType, p_token_hash: hash(token),
-  });
-  if (error || !data) throw new PaymentError(error?.code === "P0001"
-    ? "Product, shipping details or checkout attempt is invalid. Check your details and retry."
-    : "Payment database setup is unavailable. No payment request was sent.", error?.code === "P0001" ? 409 : 503);
-  const order = data.order as PaymentOrder;
-  if (!data.isNew) return paymentView(order);
+
+  // Check idempotency first
+  const { data: existing } = await admin
+    .from("orders")
+    .select("*")
+    .eq("buyer_id", buyerId)
+    .eq("idempotency_key", parsed.idempotencyKey)
+    .maybeSingle();
+
+  let order: PaymentOrder;
+
+  if (existing) {
+    order = existing as PaymentOrder;
+    return paymentView(order);
+  }
+
+  // Create new order
+  const orderNumber = `TFL-${randomBytes(8).toString("hex").toUpperCase()}`;
+  const firstProductId = rawItems[0].productId;
+
+  const { data: inserted, error: insertError } = await admin
+    .from("orders")
+    .insert({
+      order_number: orderNumber,
+      buyer_id: buyerId,
+      idempotency_key: parsed.idempotencyKey,
+      product_id: firstProductId,
+      item_name: itemNameSummary,
+      amount_kes: totalAmountKes,
+      phone_number: phone,
+      shipping_address: hasPhysical ? shipping : "Digital Session",
+      payment_status: "pending",
+      mpesa_environment: config.environment,
+      mpesa_shortcode: config.shortcode,
+      mpesa_party_b: config.partyB,
+      mpesa_transaction_type: config.transactionType,
+      callback_token_hash: hash(token),
+      therapy_sessions_snapshot: totalTherapySessions,
+      care_perk_snapshot: carePerkSummary,
+    })
+    .select()
+    .single();
+
+  if (insertError || !inserted) {
+    const { data: retryExisting } = await admin
+      .from("orders")
+      .select("*")
+      .eq("buyer_id", buyerId)
+      .eq("idempotency_key", parsed.idempotencyKey)
+      .maybeSingle();
+
+    if (retryExisting) {
+      return paymentView(retryExisting as PaymentOrder);
+    }
+    throw new PaymentError("Payment database setup is unavailable. No payment request was sent.", 503);
+  }
+
+  order = inserted as PaymentOrder;
+
   await admin.from("orders").update({ initiation_state: "sending" }).eq("id", order.id).throwOnError();
   const callback = new URL("/api/mpesa/callback", config.callbackOrigin);
   callback.searchParams.set("orderId", order.id);
