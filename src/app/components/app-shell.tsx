@@ -6,6 +6,7 @@ import {
   MessageCircle,
   PhoneCall,
   ShieldCheck,
+  ShoppingBag,
   Smile,
   UserCheck,
 } from "lucide-react";
@@ -27,6 +28,7 @@ interface AppShellProps {
 const desktopItems = [
   { id: "home" as const, label: "Support home", icon: Home },
   { id: "community" as const, label: "Stories", icon: MessageCircle },
+  { id: "store" as const, label: "Care gifts", icon: ShoppingBag },
   { id: "psychologist" as const, label: "Counselor", icon: UserCheck },
   { id: "wellness" as const, label: "Self-care", icon: Smile },
 ];
@@ -34,9 +36,11 @@ const desktopItems = [
 const mobileItems = [
   { id: "home" as const, label: "Home", icon: Home },
   { id: "community" as const, label: "Stories", icon: MessageCircle },
+  { id: "store" as const, label: "Care gifts", icon: ShoppingBag },
   { id: "psychologist" as const, label: "Counselor", icon: HeartHandshake },
   { id: "wellness" as const, label: "Self-care", icon: Smile },
 ];
+
 
 export function AppShell({
   activeView,
